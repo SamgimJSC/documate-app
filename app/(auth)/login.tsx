@@ -23,8 +23,8 @@ export default function LoginScreen() {
   const isBiometricEnabled = useAuthStore((s) => s.isBiometricEnabled);
   const isPinSet = useAuthStore((s) => s.isPinSet);
   const setPinVerified = useAuthStore((s) => s.setPinVerified);
-  const [email, setEmail] = useState("test@example.com");
-  const [password, setPassword] = useState("password");
+  const [email, setEmail] = useState("test@test");
+  const [password, setPassword] = useState("test");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 

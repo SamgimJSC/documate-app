@@ -50,7 +50,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   isPinVerified: false,
   // Dev/test: seed a default PIN so PIN 로그인 can be tested without server
   isPinSet: true,
-  pin: "123456",
+  pin: "000000",
   isBiometricEnabled: false,
 
   login: async (email, _password) => {
@@ -61,7 +61,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       isAuthenticated: true,
       isPinVerified: true,
       isPinSet: true,
-      pin: "123456",
+      pin: "000000",
     });
   },
 
