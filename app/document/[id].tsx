@@ -1,20 +1,21 @@
+import { Badge } from '@/components/common/badge';
+import { Colors, Radius, Spacing } from '@/constants/theme';
+import { downloadPdf } from '@/services/download';
+import { useDocStore } from '@/stores/doc-store';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   Alert,
   Platform,
+  ScrollView,
+  StyleSheet,
   Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Radius } from '@/constants/theme';
-import { Badge } from '@/components/common/badge';
-import { useDocStore } from '@/stores/doc-store';
 
 export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -80,12 +81,32 @@ export default function DocumentDetailScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{doc.title}</Text>
         <View style={styles.headerActions}>
+        {/* 수정 버튼 */}
+        <TouchableOpacity
+            onPress={() => router.push(`/document/edit/${doc.id}`)}
+            style={styles.headerBtn}>
+            <Ionicons name="pencil-outline" size={22} color={Colors.gray700} />
+          </TouchableOpacity>
+          {/* 즐겨찾기 버튼 */}
           <TouchableOpacity onPress={() => toggleFavorite(doc.id)} style={styles.headerBtn}>
             <Ionicons
               name={doc.isFavorite ? 'star' : 'star-outline'}
               size={22}
               color={doc.isFavorite ? Colors.warning : Colors.gray400}
             />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                const testUrl = 'https://pdfobject.com/pdf/sample.pdf';
+                const ok = await downloadPdf(testUrl, `${doc.title}.pdf`);
+                Alert.alert(ok ? '저장 완료' : '저장 취소', ok ? 'PDF가 저장되었습니다.' : '');
+              } catch (e) {
+                Alert.alert('다운로드 실패', '파일을 받지 못했습니다.');
+              }
+            }}
+            style={styles.headerBtn}>
+            <Ionicons name="download-outline" size={22} color={Colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
             <Ionicons name="trash-outline" size={22} color={Colors.error} />

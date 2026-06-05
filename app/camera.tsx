@@ -1,22 +1,22 @@
-import React, { useState, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-  Platform,
-  ActivityIndicator,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Document, Receipt } from '@/constants/mock-data';
+import { Colors, Radius, Spacing } from '@/constants/theme';
 import { useDocStore } from '@/stores/doc-store';
 import { useReceiptStore } from '@/stores/receipt-store';
-import { Document, Receipt } from '@/constants/mock-data';
+import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type UploadState = 'idle' | 'uploading' | 'analyzing' | 'done';
 
@@ -26,7 +26,9 @@ export default function CameraScreen() {
   const addReceipt = useReceiptStore((s) => s.addReceipt);
   const [state, setState] = useState<UploadState>('idle');
 
-  const simulateAnalysis = async (isReceipt: boolean) => {
+  // TODO: OCR 연동 시 이 함수를 CLOVA API 호출로 교체
+// 현재는 시험 단계라 가짜 분석(딜레이 후 빈 문서 생성) 유지
+const simulateAnalysis = async (isReceipt: boolean, fileUri?: string) => {
     setState('uploading');
     await new Promise((r) => setTimeout(r, 800));
     setState('analyzing');
@@ -39,6 +41,7 @@ export default function CameraScreen() {
         id: `r-${Date.now()}`,
         storeName: '업로드된 영수증',
         category: '기타',
+        imageUri: fileUri,
         amount: 0,
         date: today,
         isFavorite: false,
@@ -55,6 +58,7 @@ export default function CameraScreen() {
         id: `doc-${Date.now()}`,
         title: '새로운 문서',
         category: '기타',
+        imageUri: fileUri,
         uploadedAt: today,
         tags: [],
         isFavorite: false,
@@ -83,7 +87,7 @@ export default function CameraScreen() {
       allowsEditing: false,
     });
     if (!result.canceled) {
-      await simulateAnalysis(false);
+      await simulateAnalysis(false, result.assets[0].uri);
     }
   };
 
@@ -92,8 +96,8 @@ export default function CameraScreen() {
       quality: 0.8,
       allowsMultipleSelection: false,
     });
-    if (!result.canceled) {
-      await simulateAnalysis(false);
+  if (!result.canceled) {
+      await simulateAnalysis(false, result.assets[0].uri);
     }
   };
 
@@ -103,7 +107,7 @@ export default function CameraScreen() {
       copyToCacheDirectory: true,
     });
     if (result.assets && result.assets.length > 0) {
-      await simulateAnalysis(false);
+      await simulateAnalysis(false, result.assets[0].uri);
     }
   };
 
@@ -115,7 +119,7 @@ export default function CameraScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
     if (!result.canceled) {
-      await simulateAnalysis(true);
+      await simulateAnalysis(true, result.assets[0].uri);
     }
   };
 

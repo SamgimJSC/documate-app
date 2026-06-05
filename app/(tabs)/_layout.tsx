@@ -1,5 +1,5 @@
-import { Tabs } from 'expo-router';
 import { CustomTabBar } from '@/components/ui/tab-bar';
+import { Tabs } from 'expo-router';
 
 export default function TabLayout() {
   return (
@@ -8,6 +8,12 @@ export default function TabLayout() {
       <Tabs.Screen name="cabinet" />
       <Tabs.Screen name="receipt" />
       <Tabs.Screen name="mypage" />
+      <Tabs.Screen
+  name="explore"
+  options={{
+    href: null,
+  }}
+/>
     </Tabs>
   );
 }
