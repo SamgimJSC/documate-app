@@ -148,6 +148,10 @@ export default function RegisterScreen() {
               />
               {emailSent ? (
                 <>
+                  <Text style={styles.hintText}>
+                    테스트용 인증번호는{" "}
+                    <Text style={styles.hintCode}>123456</Text> 입니다.
+                  </Text>
                   <Input
                     label="인증번호"
                     placeholder="인증번호 6자리 입력"
@@ -324,6 +328,8 @@ const styles = StyleSheet.create({
   loginLabel: { fontSize: 14, color: Colors.gray500 },
   loginLink: { fontSize: 14, color: Colors.primary, fontWeight: "600" },
   verifyButton: { marginTop: -Spacing.sm, marginBottom: Spacing.md },
+  hintText: { fontSize: 12, color: Colors.gray500, marginBottom: Spacing.xs },
+  hintCode: { color: Colors.primary, fontWeight: "700" },
   checkboxWrap: { gap: Spacing.sm, marginTop: Spacing.sm },
   checkboxRow: {
     flexDirection: "row",
