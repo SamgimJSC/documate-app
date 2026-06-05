@@ -1,29 +1,35 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import * as LocalAuthentication from 'expo-local-authentication';
-import { Ionicons } from '@expo/vector-icons';
-import { PinPad } from '@/components/common/pin-pad';
-import { Colors, Spacing, Radius } from '@/constants/theme';
-import { useAuthStore } from '@/stores/auth-store';
+import { PinPad } from "@/components/common/pin-pad";
+import { Colors, Radius, Spacing } from "@/constants/theme";
+import { useAuthStore } from "@/stores/auth-store";
+import { Ionicons } from "@expo/vector-icons";
+import * as LocalAuthentication from "expo-local-authentication";
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function PinVerifyScreen() {
   const router = useRouter();
   const { verifyPin, isBiometricEnabled, logout, user } = useAuthStore();
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState('');
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
   const [attempts, setAttempts] = useState(0);
 
   const handlePin = (val: string) => {
     setPin(val);
     if (val.length === 6) {
       if (verifyPin(val)) {
-        router.replace('/(tabs)');
+        // Ensure auth flags are set on the store (avoid race with guard)
+        useAuthStore.setState({ isAuthenticated: true, isPinVerified: true });
+        router.replace("/(tabs)");
       } else {
         setAttempts((a) => a + 1);
-        setError(attempts >= 2 ? '5회 오류 시 계정이 잠깁니다.' : '잘못된 PIN입니다. 다시 시도해주세요.');
-        setPin('');
+        setError(
+          attempts >= 2
+            ? "5회 오류 시 계정이 잠깁니다."
+            : "잘못된 PIN입니다. 다시 시도해주세요.",
+        );
+        setPin("");
       }
     }
   };
@@ -31,12 +37,12 @@ export default function PinVerifyScreen() {
   const handleBiometric = async () => {
     try {
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'DocuMate에 접근합니다',
-        cancelLabel: '취소',
+        promptMessage: "DocuMate에 접근합니다",
+        cancelLabel: "취소",
       });
       if (result.success) {
-        useAuthStore.getState().setPinVerified(true);
-        router.replace('/(tabs)');
+        useAuthStore.setState({ isAuthenticated: true, isPinVerified: true });
+        router.replace("/(tabs)");
       }
     } catch {
       // ignore
@@ -50,7 +56,9 @@ export default function PinVerifyScreen() {
           <View style={styles.avatarWrap}>
             <Ionicons name="person" size={36} color={Colors.primary} />
           </View>
-          <Text style={styles.welcome}>안녕하세요, {user?.nickname ?? ''}님</Text>
+          <Text style={styles.welcome}>
+            안녕하세요, {user?.nickname ?? ""}님
+          </Text>
           <Text style={styles.desc}>PIN을 입력해 앱에 접근하세요</Text>
         </View>
 
@@ -77,25 +85,30 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: Spacing.xl,
     gap: Spacing.xl,
   },
-  top: { alignItems: 'center', gap: Spacing.sm },
+  top: { alignItems: "center", gap: Spacing.sm },
   avatarWrap: {
     width: 80,
     height: 80,
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  welcome: { fontSize: 20, fontWeight: '700', color: Colors.gray900 },
+  welcome: { fontSize: 20, fontWeight: "700", color: Colors.gray900 },
   desc: { fontSize: 14, color: Colors.gray500 },
-  error: { fontSize: 13, color: Colors.error, textAlign: 'center' },
-  bioBtn: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: Spacing.md },
-  bioText: { fontSize: 15, color: Colors.primary, fontWeight: '600' },
+  error: { fontSize: 13, color: Colors.error, textAlign: "center" },
+  bioBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+  },
+  bioText: { fontSize: 15, color: Colors.primary, fontWeight: "600" },
   logoutBtn: { padding: Spacing.sm },
   logoutText: { fontSize: 13, color: Colors.gray400 },
 });
