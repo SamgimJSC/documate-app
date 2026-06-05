@@ -19,6 +19,8 @@ export default function PinVerifyScreen() {
     setPin(val);
     if (val.length === 6) {
       if (verifyPin(val)) {
+        // Ensure auth flags are set on the store (avoid race with guard)
+        useAuthStore.setState({ isAuthenticated: true, isPinVerified: true });
         router.replace('/(tabs)');
       } else {
         setAttempts((a) => a + 1);
@@ -35,7 +37,7 @@ export default function PinVerifyScreen() {
         cancelLabel: '취소',
       });
       if (result.success) {
-        useAuthStore.getState().setPinVerified(true);
+        useAuthStore.setState({ isAuthenticated: true, isPinVerified: true });
         router.replace('/(tabs)');
       }
     } catch {
