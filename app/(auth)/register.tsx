@@ -19,21 +19,34 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function RegisterScreen() {
   const router = useRouter();
   const register = useAuthStore((s) => s.register);
+  // ↓ 중복 이메일 예외 처리 함수
+  const checkEmailExists = useAuthStore((s) => s.checkEmailExists);
   const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [emailCode, setEmailCode] = useState("");
+  const [enteredCode, setEnteredCode] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
+  const [acceptedPush, setAcceptedPush] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({});
 
   const validate = () => {
     const e: Record<string, string> = {};
     if (!nickname) e.nickname = "닉네임을 입력해주세요.";
     if (!email || !/\S+@\S+\.\S+/.test(email))
       e.email = "올바른 이메일을 입력해주세요.";
+    if (!emailVerified) e.emailCode = "이메일 인증을 완료해주세요.";
     if (!password || password.length < 8)
       e.password = "비밀번호는 8자 이상이어야 합니다.";
     if (password !== confirm) e.confirm = "비밀번호가 일치하지 않습니다.";
+    if (!acceptedTerms) e.terms = "이용약관 동의가 필요합니다.";
+    if (!acceptedPrivacy) e.privacy = "개인정보처리방침 동의가 필요합니다.";
+    if (!acceptedPush) e.push = "알림 수신 동의가 필요합니다.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -44,8 +57,12 @@ export default function RegisterScreen() {
     try {
       await register(email, password, nickname);
       router.replace("/(auth)/pin-setup?source=register" as any);
-    } catch {
-      setErrors({ general: "회원가입에 실패했습니다." });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message === "EMAIL_TAKEN"
+          ? "이미 등록된 이메일입니다."
+          : "회원가입에 실패했습니다.";
+      setErrors({ general: message });
     } finally {
       setLoading(false);
     }
@@ -89,10 +106,84 @@ export default function RegisterScreen() {
                 label="이메일"
                 placeholder="이메일 주소 입력"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  setEmailVerified(false);
+                  setEmailSent(false);
+                  setEnteredCode("");
+                }}
                 keyboardType="email-address"
                 error={errors.email}
               />
+              <Button
+                label={emailSent ? "인증번호 재요청" : "이메일 인증번호 받기"}
+                onPress={() => {
+                  if (!email || !/\S+@\S+\.\S+/.test(email)) {
+                    setErrors((prev) => ({
+                      ...prev,
+                      email: "올바른 이메일을 입력해주세요.",
+                    }));
+                    return;
+                  }
+                  if (checkEmailExists(email)) {
+                    setErrors((prev) => ({
+                      ...prev,
+                      general: "이미 등록된 이메일입니다.",
+                    }));
+                    return;
+                  }
+                  setEmailCode("123456");
+                  setEmailSent(true);
+                  setEmailVerified(false);
+                  setErrors((prev) => ({
+                    ...prev,
+                    email: undefined,
+                    emailCode: undefined,
+                    general: undefined,
+                  }));
+                }}
+                variant="outline"
+                disabled={emailSent && emailVerified}
+                style={styles.verifyButton}
+              />
+              {emailSent ? (
+                <>
+                  <Input
+                    label="인증번호"
+                    placeholder="인증번호 6자리 입력"
+                    value={enteredCode}
+                    onChangeText={(text) => {
+                      setEnteredCode(text);
+                      setErrors((prev) => ({ ...prev, emailCode: undefined }));
+                    }}
+                    keyboardType="numeric"
+                    error={errors.emailCode}
+                  />
+                  <Button
+                    label={emailVerified ? "인증완료" : "인증번호 확인"}
+                    onPress={() => {
+                      if (
+                        enteredCode === emailCode &&
+                        enteredCode.length === 6
+                      ) {
+                        setEmailVerified(true);
+                        setErrors((prev) => ({
+                          ...prev,
+                          emailCode: undefined,
+                        }));
+                      } else {
+                        setErrors((prev) => ({
+                          ...prev,
+                          emailCode: "인증번호가 올바르지 않습니다.",
+                        }));
+                      }
+                    }}
+                    disabled={emailVerified}
+                    variant={emailVerified ? "secondary" : "primary"}
+                    style={styles.verifyButton}
+                  />
+                </>
+              ) : null}
               <Input
                 label="비밀번호"
                 placeholder="8자 이상 입력"
@@ -115,16 +206,73 @@ export default function RegisterScreen() {
               <Text style={styles.generalError}>{errors.general}</Text>
             )}
 
-            <Text style={styles.terms}>
-              가입 시 <Text style={styles.termsLink}>이용약관</Text> 및{" "}
-              <Text style={styles.termsLink}>개인정보처리방침</Text>에 동의하게
-              됩니다.
-            </Text>
+            <View style={styles.checkboxWrap}>
+              <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() => setAcceptedTerms((prev) => !prev)}
+              >
+                <View
+                  style={[
+                    styles.checkbox,
+                    acceptedTerms && styles.checkboxChecked,
+                  ]}
+                >
+                  {acceptedTerms && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+                <Text style={styles.checkboxLabel}>서비스 이용약관 동의</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() => setAcceptedPrivacy((prev) => !prev)}
+              >
+                <View
+                  style={[
+                    styles.checkbox,
+                    acceptedPrivacy && styles.checkboxChecked,
+                  ]}
+                >
+                  {acceptedPrivacy && (
+                    <Text style={styles.checkboxMark}>✓</Text>
+                  )}
+                </View>
+                <Text style={styles.checkboxLabel}>개인정보처리방침 동의</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() => setAcceptedPush((prev) => !prev)}
+              >
+                <View
+                  style={[
+                    styles.checkbox,
+                    acceptedPush && styles.checkboxChecked,
+                  ]}
+                >
+                  {acceptedPush && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+                <Text style={styles.checkboxLabel}>알림 푸시 수신 동의</Text>
+              </TouchableOpacity>
+            </View>
+            {errors.terms && (
+              <Text style={styles.smallError}>{errors.terms}</Text>
+            )}
+            {errors.privacy && (
+              <Text style={styles.smallError}>{errors.privacy}</Text>
+            )}
+            {errors.push && (
+              <Text style={styles.smallError}>{errors.push}</Text>
+            )}
 
             <Button
-              label="회원가입"
+              label="다음 단계"
               onPress={handleRegister}
               loading={loading}
+              disabled={
+                !emailVerified ||
+                !acceptedTerms ||
+                !acceptedPrivacy ||
+                !acceptedPush ||
+                loading
+              }
             />
 
             <View style={styles.loginRow}>
@@ -175,4 +323,28 @@ const styles = StyleSheet.create({
   loginRow: { flexDirection: "row", justifyContent: "center", gap: Spacing.xs },
   loginLabel: { fontSize: 14, color: Colors.gray500 },
   loginLink: { fontSize: 14, color: Colors.primary, fontWeight: "600" },
+  verifyButton: { marginTop: -Spacing.sm, marginBottom: Spacing.md },
+  checkboxWrap: { gap: Spacing.sm, marginTop: Spacing.sm },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: Colors.gray300,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.white,
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  checkboxMark: { color: Colors.white, fontSize: 14, fontWeight: "700" },
+  checkboxLabel: { fontSize: 14, color: Colors.gray700 },
+  smallError: { fontSize: 12, color: Colors.error, marginTop: -Spacing.sm },
 });

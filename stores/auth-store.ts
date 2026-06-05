@@ -25,6 +25,7 @@ interface AuthState {
     password: string,
     nickname: string,
   ) => Promise<void>;
+  checkEmailExists: (email: string) => boolean;
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
   setPinVerified: (verified: boolean) => void;
@@ -42,6 +43,8 @@ const MOCK_USER: User = {
   storageUsed: 1.2,
   storageLimit: 5,
 };
+
+const REGISTERED_EMAILS = new Set([MOCK_USER.email]);
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
   user: null,
@@ -77,6 +80,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   register: async (email, _password, nickname) => {
     await new Promise((r) => setTimeout(r, 800));
+    if (REGISTERED_EMAILS.has(email)) {
+      throw new Error("EMAIL_TAKEN");
+    }
+    REGISTERED_EMAILS.add(email);
     set({
       user: { ...MOCK_USER, email, nickname },
       token: "mock-jwt-token",
@@ -85,6 +92,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       isPinSet: false,
     });
   },
+
+  checkEmailExists: (email) => REGISTERED_EMAILS.has(email),
 
   setPin: (pin) => set({ pin, isPinSet: true }),
 
