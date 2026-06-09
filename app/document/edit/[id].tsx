@@ -1,5 +1,6 @@
 import { DocumentCategory } from '@/constants/mock-data';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import { cancelNotification, scheduleExpiryNotification } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -36,6 +37,21 @@ function subtractDays(dateStr: string, days: number): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+}
+
+// 알림 날짜(YYYY-MM-DD)의 오전 9시가 이미 지났는지 검사
+function isNotiDatePast(dateStr: string): boolean {
+  const target = new Date(dateStr);
+  target.setHours(9, 0, 0, 0);
+  return target.getTime() <= Date.now();
+}
+
+// 사용자가 입력한 값에서 숫자만 뽑아 YYYY-MM-DD 형태로 대시 자동 삽입
+function formatDateInput(text: string): string {
+  const digits = text.replace(/\D/g, '').slice(0, 8); // 숫자만, 최대 8자리
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
 }
 
 export default function DocumentEditScreen() {
@@ -76,32 +92,36 @@ export default function DocumentEditScreen() {
     );
   }
 
-  const handleSave = () => {
-    // 제목은 비어 있으면 안 됨
-    if (!title.trim()) {
-      Alert.alert('입력 오류', '제목을 입력해주세요.');
-      return;
+  // 실제 저장 + 알림 예약 + 상세 페이지로 이동
+  const commitSave = async () => {
+    // 기존에 예약된 알림이 있으면 먼저 취소 (id가 예약 식별자)
+    for (const n of doc.notifications) {
+      if (n.id) await cancelNotification(n.id);
     }
 
-    // 만료일 형식 간단 검증 (입력했을 경우에만)
-    if (expiryDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate.trim())) {
-      Alert.alert('입력 오류', '만료일은 YYYY-MM-DD 형식으로 입력해주세요.\n예: 2026-12-31');
-      return;
-    }
-
-    // 알림 배열 구성: 만료일 + 알림 시점이 모두 있을 때만 생성
+    // 알림 배열 구성: 만료일 + 알림 시점이 모두 있을 때만 생성 + 실제 예약
     let notifications = doc.notifications;
     if (expiryDate.trim() && notiDays !== null) {
       const option = NOTI_OPTIONS.find((o) => o.days === notiDays);
+      const notiDate = subtractDays(expiryDate.trim(), notiDays);
+      const label = option ? option.label + ' 알림' : '만료 알림';
+
+      // 실제 기기 알림 예약 (과거 날짜면 null 반환 → 예약은 안 되지만 정보는 저장)
+      const scheduledId = await scheduleExpiryNotification(
+        notiDate,
+        title.trim() || '문서 만료 알림',
+        `"${title.trim()}" 문서가 곧 만료됩니다.`
+      );
+
       notifications = [
         {
-          id: `n-${Date.now()}`,
-          date: subtractDays(expiryDate.trim(), notiDays),
-          label: option ? option.label + ' 알림' : '만료 알림',
+          id: scheduledId ?? `n-${Date.now()}`,
+          date: notiDate,
+          label,
           enabled: true,
         },
       ];
-    } else if (notiDays === null) {
+    } else {
       // 알림 없음 선택 시 기존 알림 제거
       notifications = [];
     }
@@ -114,9 +134,41 @@ export default function DocumentEditScreen() {
       notifications,
     });
 
-    Alert.alert('저장 완료', '문서 정보가 수정되었습니다.', [
-      { text: '확인', onPress: () => router.back() },
-    ]);
+    // 수정된 값이 반영된 상세 페이지로 이동 (뒤로가기 시 수정 화면 안 거치도록 replace)
+    router.replace(`/document/${doc.id}`);
+  };
+
+  const handleSave = async () => {
+    // 제목은 비어 있으면 안 됨
+    if (!title.trim()) {
+      Alert.alert('입력 오류', '제목을 입력해주세요.');
+      return;
+    }
+
+    // 만료일 형식 간단 검증 (입력했을 경우에만)
+    if (expiryDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate.trim())) {
+      Alert.alert('입력 오류', '만료일은 YYYY-MM-DD 형식으로 입력해주세요.\n예: 2026-12-31');
+      return;
+    }
+
+    // 알림 날짜가 이미 지났는지 먼저 검사 (저장 전에)
+    if (expiryDate.trim() && notiDays !== null) {
+      const notiDate = subtractDays(expiryDate.trim(), notiDays);
+      if (isNotiDatePast(notiDate)) {
+        Alert.alert(
+          '알림 날짜 확인',
+          `설정한 알림 날짜(${notiDate})가 이미 지났어요. 다시 한 번 확인하시겠습니까?`,
+          [
+            { text: '수정', style: 'cancel' }, // 저장 안 하고 화면에 머무름 (입력값 유지)
+            { text: '이대로 완료', onPress: () => commitSave() },
+          ]
+        );
+        return;
+      }
+    }
+
+    // 날짜 문제 없으면 바로 저장
+    await commitSave();
   };
 
   return (
@@ -172,10 +224,11 @@ export default function DocumentEditScreen() {
           <TextInput
             style={styles.input}
             value={expiryDate}
-            onChangeText={setExpiryDate}
+            onChangeText={(text) => setExpiryDate(formatDateInput(text))}
             placeholder="YYYY-MM-DD (예: 2026-12-31)"
             placeholderTextColor={Colors.gray400}
-            keyboardType="numbers-and-punctuation"
+            keyboardType="number-pad"
+            maxLength={10}
           />
           <Text style={styles.hint}>만료일을 입력하면 만료 알림을 설정할 수 있어요.</Text>
 

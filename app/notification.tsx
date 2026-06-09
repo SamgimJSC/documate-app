@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Radius, Spacing } from '@/constants/theme';
+import { sendTestNotification, sendTestNotificationIn10s } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface NotifItem {
   id: string;
@@ -83,6 +84,26 @@ export default function NotificationScreen() {
             <Text style={styles.markAllText}>모두 읽음</Text>
           </TouchableOpacity>
         )}
+      </View>
+
+      {/* TODO: 🔧 테스트용 버튼 (확인 끝나면 이 블록 삭제) */}
+      <View style={styles.testRow}>
+        <TouchableOpacity
+          style={styles.testBtn}
+          onPress={async () => {
+            await sendTestNotification();
+            Alert.alert('전송됨', '즉시 알림을 보냈어요. 화면 상단을 확인하세요.');
+          }}>
+          <Text style={styles.testBtnText}>즉시 알림</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.testBtn}
+          onPress={async () => {
+            await sendTestNotificationIn10s();
+            Alert.alert('예약됨', '10초 뒤에 알림이 떠요. 앱을 닫고 기다려보세요!');
+          }}>
+          <Text style={styles.testBtnText}>10초 뒤 알림</Text>
+        </TouchableOpacity>
       </View>
 
       {unreadCount > 0 && (
@@ -172,4 +193,15 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', padding: Spacing.xxl, gap: Spacing.md },
   emptyIcon: { fontSize: 48 },
   emptyText: { fontSize: 16, color: Colors.gray400 },
+  testRow: { flexDirection: 'row', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
+  testBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+  },
+  testBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
 });
