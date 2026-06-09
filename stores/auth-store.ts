@@ -1,10 +1,10 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
 export interface User {
   id: string;
   email: string;
   nickname: string;
-  plan: 'free' | 'pro';
+  plan: "free" | "pro";
   storageUsed: number;
   storageLimit: number;
 }
@@ -20,7 +20,11 @@ interface AuthState {
 
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  register: (email: string, password: string, nickname: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    nickname: string,
+  ) => Promise<void>;
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
   setPinVerified: (verified: boolean) => void;
@@ -31,10 +35,10 @@ interface AuthState {
 }
 
 const MOCK_USER: User = {
-  id: 'user-1',
-  email: 'test@example.com',
-  nickname: '홍길동',
-  plan: 'free',
+  id: "user-1",
+  email: "test@example.com",
+  nickname: "홍길동",
+  plan: "free",
   storageUsed: 1.2,
   storageLimit: 5,
 };
@@ -44,17 +48,20 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   token: null,
   isAuthenticated: false,
   isPinVerified: false,
-  isPinSet: false,
-  pin: '',
+  // Dev/test: seed a default PIN so PIN 로그인 can be tested without server
+  isPinSet: true,
+  pin: "000000",
   isBiometricEnabled: false,
 
   login: async (email, _password) => {
     await new Promise((r) => setTimeout(r, 800));
     set({
       user: { ...MOCK_USER, email },
-      token: 'mock-jwt-token',
+      token: "mock-jwt-token",
       isAuthenticated: true,
-      isPinVerified: false,
+      isPinVerified: true,
+      isPinSet: true,
+      pin: "000000",
     });
   },
 
@@ -65,14 +72,14 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       isAuthenticated: false,
       isPinVerified: false,
       isPinSet: false,
-      pin: '',
+      pin: "",
     }),
 
   register: async (email, _password, nickname) => {
     await new Promise((r) => setTimeout(r, 800));
     set({
       user: { ...MOCK_USER, email, nickname },
-      token: 'mock-jwt-token',
+      token: "mock-jwt-token",
       isAuthenticated: true,
       isPinVerified: false,
       isPinSet: false,
@@ -83,7 +90,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   verifyPin: (pin) => {
     const isCorrect = get().pin === pin;
-    if (isCorrect) set({ isPinVerified: true });
+    if (isCorrect) set({ isPinVerified: true, isAuthenticated: true });
     return isCorrect;
   },
 
@@ -100,6 +107,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   upgradeToPro: () =>
     set((state) => ({
-      user: state.user ? { ...state.user, plan: 'pro', storageLimit: 50 } : null,
+      user: state.user
+        ? { ...state.user, plan: "pro", storageLimit: 50 }
+        : null,
     })),
 }));

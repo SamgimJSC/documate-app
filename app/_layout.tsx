@@ -22,32 +22,46 @@ setupNotificationHandler();
 
 function AuthGuard() {
   const { isAuthenticated, isPinVerified, isPinSet } = useAuthStore();
+
   const segments = useSegments();
   const router = useRouter();
   const navigationState = useRootNavigationState();
 
   useEffect(() => {
-    if (!navigationState?.key) return;
+    // [안전장치 1]: 네비게이션이 아직 준비 안 됐다면 절대 대기
+    if (!navigationState || !navigationState?.key) {
+      return;
+    }
 
     const seg = segments as string[];
     const inAuth = seg[0] === "(auth)";
+    const authScreen = seg[1] ?? "";
+    const authEntryScreens = ["login", "register", "forgot-password"];
 
-    if (!isAuthenticated && !inAuth) {
-      router.replace("/(auth)/login" as any);
-    } else if (isAuthenticated && !isPinSet && !inAuth) {
-      router.replace("/(auth)/pin-setup" as any);
-    } else if (isAuthenticated && isPinSet && !isPinVerified && !inAuth) {
-      router.replace("/(auth)/pin-verify" as any);
-    } else if (isAuthenticated && isPinVerified && inAuth) {
-      router.replace("/(tabs)");
-    }
+    // [안전장치 2]: 다음 틱에 안전하게 실행되도록 반 박자 늦추기
+    const timeoutId = setTimeout(() => {
+      if (!isAuthenticated && !inAuth) {
+        router.replace("/(auth)/login" as any);
+      } else if (isAuthenticated && isPinSet && !isPinVerified && !inAuth) {
+        router.replace("/(auth)/pin-verify" as any);
+      } else if (
+        isAuthenticated &&
+        (isPinVerified || !isPinSet) &&
+        inAuth &&
+        authEntryScreens.includes(authScreen)
+      ) {
+        router.replace("/(tabs)");
+      }
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
   }, [
     isAuthenticated,
     isPinVerified,
     isPinSet,
     segments,
     router,
-    navigationState?.key,
+    navigationState,
   ]);
 
   return null;
@@ -63,7 +77,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-      {/* <AuthGuard /> */}
+      <AuthGuard />
       <Stack>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
