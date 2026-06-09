@@ -5,19 +5,38 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const CATEGORIES: DocumentCategory[] = ['계약서', '보증서', '처방전', '보험서류', '기타'];
+
+// 알림 시점 옵션: 만료일 기준으로 며칠 전에 알릴지
+const NOTI_OPTIONS: { days: number; label: string }[] = [
+  { days: 30, label: '만료 1개월 전' },
+  { days: 14, label: '만료 2주 전' },
+  { days: 7, label: '만료 1주 전' },
+  { days: 3, label: '만료 3일 전' },
+  { days: 1, label: '만료 1일 전' },
+];
+
+// 'YYYY-MM-DD' 문자열에서 days만큼 뺀 날짜를 'YYYY-MM-DD'로 반환
+function subtractDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() - days);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 export default function DocumentEditScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -30,6 +49,19 @@ export default function DocumentEditScreen() {
   const [category, setCategory] = useState<DocumentCategory>(doc?.category ?? '기타');
   const [expiryDate, setExpiryDate] = useState(doc?.expiryDate ?? '');
   const [notes, setNotes] = useState(doc?.extractedData?.notes ?? '');
+
+  // 알림 시점(며칠 전). null = 알림 없음. 기존 문서의 첫 알림에서 일수 추정
+  const initialNotiDays = (() => {
+    const first = doc?.notifications?.[0];
+    if (!first || !doc?.expiryDate) return null;
+    const exp = new Date(doc.expiryDate).getTime();
+    const noti = new Date(first.date).getTime();
+    const diff = Math.round((exp - noti) / (1000 * 60 * 60 * 24));
+    // 옵션에 있는 값이면 그걸로, 아니면 null
+    return NOTI_OPTIONS.some((o) => o.days === diff) ? diff : null;
+  })();
+  const [notiDays, setNotiDays] = useState<number | null>(initialNotiDays);
+  const [notiMenuOpen, setNotiMenuOpen] = useState(false);
 
   if (!doc) {
     return (
@@ -57,11 +89,29 @@ export default function DocumentEditScreen() {
       return;
     }
 
+    // 알림 배열 구성: 만료일 + 알림 시점이 모두 있을 때만 생성
+    let notifications = doc.notifications;
+    if (expiryDate.trim() && notiDays !== null) {
+      const option = NOTI_OPTIONS.find((o) => o.days === notiDays);
+      notifications = [
+        {
+          id: `n-${Date.now()}`,
+          date: subtractDays(expiryDate.trim(), notiDays),
+          label: option ? option.label + ' 알림' : '만료 알림',
+          enabled: true,
+        },
+      ];
+    } else if (notiDays === null) {
+      // 알림 없음 선택 시 기존 알림 제거
+      notifications = [];
+    }
+
     updateDocument(doc.id, {
       title: title.trim(),
       category,
       expiryDate: expiryDate.trim() || undefined,
       extractedData: { ...doc.extractedData, notes: notes.trim() || undefined },
+      notifications,
     });
 
     Alert.alert('저장 완료', '문서 정보가 수정되었습니다.', [
@@ -128,6 +178,66 @@ export default function DocumentEditScreen() {
             keyboardType="numbers-and-punctuation"
           />
           <Text style={styles.hint}>만료일을 입력하면 만료 알림을 설정할 수 있어요.</Text>
+
+          {/* 알림 시점 */}
+          <Text style={styles.label}>만료 알림</Text>
+          <TouchableOpacity
+            style={[styles.dropdownTrigger, !expiryDate.trim() && styles.dropdownDisabled]}
+            disabled={!expiryDate.trim()}
+            onPress={() => setNotiMenuOpen((v) => !v)}>
+            <Text
+              style={[
+                styles.dropdownTriggerText,
+                !notiDays && styles.dropdownPlaceholder,
+              ]}>
+              {notiDays
+                ? NOTI_OPTIONS.find((o) => o.days === notiDays)?.label
+                : '알림 없음'}
+            </Text>
+            <Ionicons
+              name={notiMenuOpen ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={Colors.gray500}
+            />
+          </TouchableOpacity>
+          {!expiryDate.trim() && (
+            <Text style={styles.hint}>먼저 만료일을 입력해주세요.</Text>
+          )}
+
+          {notiMenuOpen && (
+            <View style={styles.dropdownMenu}>
+              {/* 알림 없음 */}
+              <TouchableOpacity
+                style={styles.dropdownItem}
+                onPress={() => {
+                  setNotiDays(null);
+                  setNotiMenuOpen(false);
+                }}>
+                <Text style={[styles.dropdownItemText, !notiDays && styles.dropdownItemTextActive]}>
+                  알림 없음
+                </Text>
+                {!notiDays && <Ionicons name="checkmark" size={16} color={Colors.primary} />}
+              </TouchableOpacity>
+
+              {NOTI_OPTIONS.map((opt) => {
+                const active = notiDays === opt.days;
+                return (
+                  <TouchableOpacity
+                    key={opt.days}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setNotiDays(opt.days);
+                      setNotiMenuOpen(false);
+                    }}>
+                    <Text style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}>
+                      {opt.label}
+                    </Text>
+                    {active && <Ionicons name="checkmark" size={16} color={Colors.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           {/* 메모 */}
           <Text style={styles.label}>메모 (선택)</Text>
@@ -207,4 +317,40 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   chipText: { fontSize: 14, color: Colors.gray700 },
   chipTextSelected: { color: '#fff', fontWeight: '600' },
+
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: Colors.gray300,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.white,
+  },
+  dropdownDisabled: { backgroundColor: Colors.gray100, borderColor: Colors.gray200 },
+  dropdownTriggerText: { fontSize: 15, color: Colors.gray900 },
+  dropdownPlaceholder: { color: Colors.gray400 },
+  dropdownMenu: {
+    marginTop: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.white,
+    paddingVertical: 4,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6 },
+      android: { elevation: 3 },
+    }),
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+  },
+  dropdownItemText: { fontSize: 14, color: Colors.gray700 },
+  dropdownItemTextActive: { color: Colors.primary, fontWeight: '600' },
 });

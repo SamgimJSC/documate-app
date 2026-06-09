@@ -1,20 +1,20 @@
+import { Badge } from '@/components/common/badge';
+import { DocumentCategory } from '@/constants/mock-data';
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { useDocStore } from '@/stores/doc-store';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
   Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Radius } from '@/constants/theme';
-import { Badge } from '@/components/common/badge';
-import { useDocStore } from '@/stores/doc-store';
-import { DocumentCategory } from '@/constants/mock-data';
 
 const CATEGORIES: (DocumentCategory | '전체')[] = ['전체', '계약서', '보증서', '처방전', '보험서류', '기타'];
 
@@ -30,13 +30,39 @@ export default function CabinetScreen() {
   const router = useRouter();
   const { getFilteredDocuments, setSearchQuery, setSelectedCategory, searchQuery, selectedCategory, toggleFavorite } = useDocStore();
   const [catFilter, setCatFilter] = useState<DocumentCategory | '전체'>('전체');
+  // 정렬 방식: 'recent'=최신순(기본), 'name'=이름순
+  const [sortBy, setSortBy] = useState<'recent' | 'name'>('recent');
+  // 정렬 드롭다운 열림 여부
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
   const handleCatChange = (cat: DocumentCategory | '전체') => {
     setCatFilter(cat);
     setSelectedCategory(cat === '전체' ? null : cat);
   };
 
-  const docs = getFilteredDocuments();
+  // 카테고리/검색 필터 결과
+  let docs = getFilteredDocuments();
+
+  // 정렬 적용
+  docs = [...docs].sort((a, b) => {
+    if (sortBy === 'name') {
+      // 이름순: 제목 가나다순 (한글 정렬)
+      return a.title.localeCompare(b.title, 'ko');
+    }
+    // 최신순(기본): 업로드 날짜 내림차순
+    return b.uploadedAt.localeCompare(a.uploadedAt);
+  });
+
+  const SORT_LABELS: Record<string, string> = {
+    recent: '최신순',
+    name: '이름순',
+  };
+  const currentSortLabel = SORT_LABELS[sortBy];
+
+  const handleSelectSort = (value: 'recent' | 'name') => {
+    setSortBy(value);
+    setSortMenuOpen(false);
+  };
 
   const getStatusBadge = (status: string) => {
     if (status === 'expiring_soon') return <Badge label="만료 임박" variant="warning" />;
@@ -54,8 +80,52 @@ export default function CabinetScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>디지털 캐비닛</Text>
-        <Text style={styles.headerCount}>{docs.length}개</Text>
+        <View style={styles.headerRight}>
+          <Text style={styles.headerCount}>{docs.length}개</Text>
+          <TouchableOpacity
+            style={styles.sortBtn}
+            onPress={() => setSortMenuOpen((v) => !v)}>
+            <Ionicons name="swap-vertical" size={15} color={Colors.gray600} />
+            <Text style={styles.sortBtnText}>{currentSortLabel}</Text>
+            <Ionicons
+              name={sortMenuOpen ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={Colors.gray600}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* 정렬 드롭다운 메뉴 */}
+      {sortMenuOpen && (
+        <>
+          {/* 바깥 영역 누르면 닫힘 */}
+          <TouchableOpacity
+            style={styles.dropdownBackdrop}
+            activeOpacity={1}
+            onPress={() => setSortMenuOpen(false)}
+          />
+          <View style={styles.dropdown}>
+            {([
+              { value: 'recent', label: '최신순' },
+              { value: 'name', label: '이름순' },
+            ] as const).map((opt) => {
+              const active = sortBy === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.label}
+                  style={styles.dropdownItem}
+                  onPress={() => handleSelectSort(opt.value)}>
+                  <Text style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}>
+                    {opt.label}
+                  </Text>
+                  {active && <Ionicons name="checkmark" size={16} color={Colors.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
+      )}
 
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
@@ -78,6 +148,7 @@ export default function CabinetScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.catScrollView}
         contentContainerStyle={styles.catScroll}>
         {CATEGORIES.map((cat) => (
           <TouchableOpacity
@@ -146,7 +217,6 @@ export default function CabinetScreen() {
             );
           })
         )}
-        <View style={{ height: Spacing.xl }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -160,10 +230,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
+    paddingBottom: Spacing.lg,
   },
   headerTitle: { fontSize: 22, fontWeight: '700', color: Colors.gray900 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   headerCount: { fontSize: 14, color: Colors.gray500 },
+  sortBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+  },
+  sortBtnText: { fontSize: 13, fontWeight: '500', color: Colors.gray700 },
+  dropdownBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+  dropdown: {
+    position: 'absolute',
+    top: 56,
+    right: Spacing.lg,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    paddingVertical: 4,
+    minWidth: 200,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    zIndex: 20,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8 },
+      android: { elevation: 4 },
+    }),
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+  },
+  dropdownItemText: { fontSize: 14, color: Colors.gray700 },
+  dropdownItemTextActive: { color: Colors.primary, fontWeight: '600' },
   searchRow: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
   searchBox: {
     flexDirection: 'row',
@@ -176,20 +292,21 @@ const styles = StyleSheet.create({
     borderColor: Colors.gray200,
   },
   searchInput: { flex: 1, fontSize: 14, color: Colors.gray900, paddingVertical: 12 },
-  catScroll: { paddingHorizontal: Spacing.lg, gap: Spacing.sm, paddingBottom: Spacing.sm },
+  catScrollView: { flexGrow: 0, maxHeight: 44 },
+  catScroll: { paddingHorizontal: Spacing.lg, gap: 6, paddingBottom: Spacing.sm, alignItems: 'flex-start' },
   catChip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: Radius.full,
     backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.gray200,
   },
   catChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  catChipText: { fontSize: 13, fontWeight: '500', color: Colors.gray600 },
+  catChipText: { fontSize: 12, fontWeight: '500', color: Colors.gray600 },
   catChipTextActive: { color: Colors.white },
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg, gap: Spacing.sm },
+  scrollContent: { padding: Spacing.lg, gap: Spacing.sm, paddingBottom: TAB_BAR_SPACE },
   docCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
