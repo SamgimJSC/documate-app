@@ -14,7 +14,11 @@ import { useEffect } from "react";
 import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { registerNotifications, setupNotificationHandler } from "@/services/notifications";
 import { useAuthStore } from "@/stores/auth-store";
+
+// 앱이 켜져 있을 때도 알림이 뜨도록 핸들러 등록 (모듈 로드 시 1회)
+setupNotificationHandler();
 
 function AuthGuard() {
   const { isAuthenticated, isPinVerified, isPinSet } = useAuthStore();
@@ -66,6 +70,11 @@ function AuthGuard() {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
+  // 앱 시작 시 알림 권한 요청
+  useEffect(() => {
+    registerNotifications();
+  }, []);
+
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <AuthGuard />
@@ -77,6 +86,7 @@ export default function RootLayout() {
           options={{ headerShown: false, presentation: "fullScreenModal" }}
         />
         <Stack.Screen name="document/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="document/edit/[id]" options={{ headerShown: false }} />
         <Stack.Screen
           name="receipt-detail/[id]"
           options={{ headerShown: false }}

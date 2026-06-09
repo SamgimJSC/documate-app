@@ -85,3 +85,6 @@ export const Radius = {
   xl: 24,
   full: 9999,
 };
+
+// 바텀탭 바 높이만큼 콘텐츠 하단에 줄 여백
+export const TAB_BAR_SPACE = 130;

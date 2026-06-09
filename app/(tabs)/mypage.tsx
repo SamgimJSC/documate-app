@@ -1,8 +1,8 @@
-import { Colors, Radius, Spacing } from "@/constants/theme";
-import { useAuthStore } from "@/stores/auth-store";
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { useAuthStore } from '@/stores/auth-store';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
 import {
   Alert,
   Platform,
@@ -12,8 +12,8 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -295,8 +295,6 @@ export default function MyPageScreen() {
             danger
           />
         </View>
-
-        <View style={{ height: Spacing.xl }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -311,7 +309,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 22, fontWeight: "700", color: Colors.gray900 },
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg, gap: Spacing.lg },
+  scrollContent: { padding: Spacing.lg, gap: Spacing.lg, paddingBottom: TAB_BAR_SPACE },
 
   profileCard: {
     backgroundColor: Colors.white,
