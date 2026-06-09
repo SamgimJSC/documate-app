@@ -1,5 +1,5 @@
 import { Badge } from '@/components/common/badge';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { useReceiptStore } from '@/stores/receipt-store';
@@ -182,8 +182,6 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={14} color={Colors.primary} />
           </TouchableOpacity>
         </View>
-
-        <View style={{ height: Spacing.xl }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -215,7 +213,7 @@ const styles = S.create({
   },
   notifCount: { fontSize: 10, fontWeight: '700', color: Colors.white },
   scroll: { flex: 1, backgroundColor: Colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  scrollContent: { padding: Spacing.lg, gap: Spacing.lg },
+  scrollContent: { padding: Spacing.lg, gap: Spacing.lg, paddingBottom: TAB_BAR_SPACE },
 
   storageCard: {
     backgroundColor: Colors.white,

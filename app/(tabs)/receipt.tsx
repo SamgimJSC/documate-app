@@ -1,18 +1,18 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Radius } from '@/constants/theme';
-import { useReceiptStore } from '@/stores/receipt-store';
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
 import { useAuthStore } from '@/stores/auth-store';
+import { useReceiptStore } from '@/stores/receipt-store';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React from 'react';
+import {
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const CATEGORY_COLORS: Record<string, string> = {
   '식비': '#FF6B6B',
@@ -145,8 +145,6 @@ export default function ReceiptScreen() {
             </View>
           )}
         </View>
-
-        <View style={{ height: Spacing.xl }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -165,7 +163,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 22, fontWeight: '700', color: Colors.gray900 },
   headerMonth: { fontSize: 14, color: Colors.gray500 },
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg, gap: Spacing.lg },
+  scrollContent: { padding: Spacing.lg, gap: Spacing.lg, paddingBottom: TAB_BAR_SPACE },
 
   summaryCard: {
     backgroundColor: Colors.primary,
