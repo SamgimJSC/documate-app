@@ -16,6 +16,7 @@ interface AuthState {
   isPinVerified: boolean;
   isPinSet: boolean;
   pin: string;
+  password: string;
   isBiometricEnabled: boolean;
 
   login: (email: string, password: string) => Promise<void>;
@@ -26,6 +27,11 @@ interface AuthState {
     nickname: string,
   ) => Promise<void>;
   checkEmailExists: (email: string) => boolean;
+  verifyPassword: (password: string) => boolean;
+  updatePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<void>;
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
   setPinVerified: (verified: boolean) => void;
@@ -51,13 +57,18 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   token: null,
   isAuthenticated: false,
   isPinVerified: false,
-  // Dev/test: seed a default PIN so PIN 로그인 can be tested without server
+  // Dev/test: seed a default PIN and password so login and password change can be tested.
   isPinSet: true,
   pin: "000000",
+  password: "test",
   isBiometricEnabled: false,
 
   login: async (email, _password) => {
     await new Promise((r) => setTimeout(r, 800));
+    const currentPassword = get().password;
+    if (_password !== currentPassword) {
+      throw new Error("INVALID_PASSWORD");
+    }
     set({
       user: { ...MOCK_USER, email },
       token: "mock-jwt-token",
@@ -90,10 +101,22 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       isAuthenticated: true,
       isPinVerified: false,
       isPinSet: false,
+      password: _password,
     });
   },
 
   checkEmailExists: (email) => REGISTERED_EMAILS.has(email),
+
+  verifyPassword: (password) => get().password === password,
+
+  updatePassword: async (currentPassword, newPassword) => {
+    await new Promise((r) => setTimeout(r, 400));
+    const isCorrect = get().password === currentPassword;
+    if (!isCorrect) {
+      throw new Error("INVALID_PASSWORD");
+    }
+    set({ password: newPassword });
+  },
 
   setPin: (pin) => set({ pin, isPinSet: true }),
 

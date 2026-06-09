@@ -48,6 +48,7 @@ export default function RegisterScreen() {
     passwordHasNumber,
     passwordHasSymbol,
   ].filter(Boolean).length;
+  const passwordCriteriaMatched = passwordTypeCount >= 2;
   const passwordStrengthLabel = password.length
     ? passwordTypeCount === 1
       ? "약함"
@@ -107,6 +108,8 @@ export default function RegisterScreen() {
     if (!emailVerified) e.emailCode = "이메일 인증을 완료해주세요.";
     if (!password || password.length < 8)
       e.password = "비밀번호는 8자 이상이어야 합니다.";
+    else if (!passwordCriteriaMatched)
+      e.password = "영문, 숫자, 특수문자 중 2가지 이상 포함해야 합니다.";
     if (password !== confirm) e.confirm = "비밀번호가 일치하지 않습니다.";
     if (!acceptedTerms) e.terms = "이용약관 동의가 필요합니다.";
     if (!acceptedPrivacy) e.privacy = "개인정보처리방침 동의가 필요합니다.";
@@ -331,7 +334,7 @@ export default function RegisterScreen() {
               />
               <View style={styles.passwordInfoRow}>
                 <Text style={styles.passwordInfoText}>
-                  비밀번호는 8자 이상 입력해주세요.
+                  영문, 숫자, 특수문자 중 2개 이상 포함해야 합니다.
                 </Text>
                 {password.length > 0 ? (
                   <Text
