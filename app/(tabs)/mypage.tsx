@@ -1,11 +1,13 @@
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
-import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
-import { useAuthStore } from "@/stores/auth-store";
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { cancelAllNotifications, rescheduleAllNotifications } from '@/services/notifications';
+import { useAuthStore } from '@/stores/auth-store';
+import { useDocStore } from '@/stores/doc-store';
 import { analyzePassword, validatePassword } from "@/utils/validation";
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Modal,
@@ -19,7 +21,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type IconName = React.ComponentProps<typeof Ionicons>["name"];
+type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface MenuItemProps {
   icon: IconName;
@@ -32,32 +34,13 @@ interface MenuItemProps {
   danger?: boolean;
 }
 
-function MenuItem({
-  icon,
-  label,
-  onPress,
-  value,
-  toggle,
-  toggleValue,
-  onToggle,
-  danger,
-}: MenuItemProps) {
+function MenuItem({ icon, label, onPress, value, toggle, toggleValue, onToggle, danger }: MenuItemProps) {
   return (
-    <TouchableOpacity
-      style={styles.menuItem}
-      onPress={onPress}
-      activeOpacity={toggle ? 1 : 0.7}
-    >
+    <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={toggle ? 1 : 0.7}>
       <View style={[styles.menuIconWrap, danger && styles.menuIconDanger]}>
-        <Ionicons
-          name={icon}
-          size={18}
-          color={danger ? Colors.error : Colors.primary}
-        />
+        <Ionicons name={icon} size={18} color={danger ? Colors.error : Colors.primary} />
       </View>
-      <Text style={[styles.menuLabel, danger && styles.menuLabelDanger]}>
-        {label}
-      </Text>
+      <Text style={[styles.menuLabel, danger && styles.menuLabelDanger]}>{label}</Text>
       <View style={styles.menuRight}>
         {value && <Text style={styles.menuValue}>{value}</Text>}
         {toggle ? (
@@ -67,9 +50,7 @@ function MenuItem({
             trackColor={{ false: Colors.gray200, true: Colors.primary }}
           />
         ) : (
-          !danger && (
-            <Ionicons name="chevron-forward" size={16} color={Colors.gray300} />
-          )
+          !danger && <Ionicons name="chevron-forward" size={16} color={Colors.gray300} />
         )}
       </View>
     </TouchableOpacity>
@@ -89,6 +70,17 @@ export default function MyPageScreen() {
     updatePassword,
   } = useAuthStore();
   const [pushEnabled, setPushEnabled] = useState(true);
+  const documents = useDocStore((s) => s.documents);
+
+  // 앱 푸시 알림 토글: 끄면 예약 알림 전부 취소, 켜면 문서 기준 재예약
+  const handlePushToggle = async (value: boolean) => {
+    setPushEnabled(value);
+    if (value) {
+      await rescheduleAllNotifications(documents);
+    } else {
+      await cancelAllNotifications();
+    }
+  };
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(user?.nickname ?? "");
@@ -114,9 +106,7 @@ export default function MyPageScreen() {
           ? Colors.warning
           : Colors.success;
 
-  const storagePercent = user
-    ? Math.round((user.storageUsed / user.storageLimit) * 100)
-    : 0;
+  const storagePercent = user ? Math.round((user.storageUsed / user.storageLimit) * 100) : 0;
 
   useEffect(() => {
     setNicknameInput(user?.nickname ?? "");
@@ -134,16 +124,9 @@ export default function MyPageScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert("로그아웃", "정말 로그아웃 하시겠습니까?", [
-      { text: "취소", style: "cancel" },
-      {
-        text: "로그아웃",
-        style: "destructive",
-        onPress: () => {
-          logout();
-          router.replace("/(auth)/login" as any);
-        },
-      },
+    Alert.alert('로그아웃', '정말 로그아웃 하시겠습니까?', [
+      { text: '취소', style: 'cancel' },
+      { text: '로그아웃', style: 'destructive', onPress: logout },
     ]);
   };
 
@@ -212,12 +195,12 @@ export default function MyPageScreen() {
 
   const handleWithdraw = () => {
     Alert.alert(
-      "회원탈퇴",
-      "탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠습니까?",
+      '회원탈퇴',
+      '탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠습니까?',
       [
-        { text: "취소", style: "cancel" },
-        { text: "탈퇴", style: "destructive", onPress: logout },
-      ],
+        { text: '취소', style: 'cancel' },
+        { text: '탈퇴', style: 'destructive', onPress: logout },
+      ]
     );
   };
 
@@ -227,49 +210,44 @@ export default function MyPageScreen() {
         <Text style={styles.headerTitle}>마이페이지</Text>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* 프로필 카드 */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatarWrap}>
-            <Ionicons name="person" size={36} color={Colors.primary} />
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.nickname}>{user?.nickname}</Text>
-            <Text style={styles.email}>{user?.email}</Text>
-            <View
-              style={[
-                styles.planBadge,
-                user?.plan === "pro"
-                  ? styles.planBadgePro
-                  : styles.planBadgeFree,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.planText,
-                  user?.plan === "pro"
-                    ? styles.planTextPro
-                    : styles.planTextFree,
-                ]}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {user?.plan === "pro" ? "Pro" : "Free"}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.profileAction}>
-            <Button
-              label="회원정보 수정"
-              onPress={handleOpenProfileEdit}
-              style={styles.profileActionButton}
-            />
-          </View>
-        </View>
+<View style={styles.profileCard}>
+  <View style={styles.avatarWrap}>
+    <Ionicons name="person" size={36} color={Colors.primary} />
+  </View>
+
+  <View style={styles.profileInfo}>
+    <Text style={styles.nickname}>{user?.nickname}</Text>
+    <Text style={styles.email}>{user?.email}</Text>
+
+    <View
+      style={[
+        styles.planBadge,
+        user?.plan === "pro" ? styles.planBadgePro : styles.planBadgeFree,
+      ]}
+    >
+      <Text
+        style={[
+          styles.planText,
+          user?.plan === "pro" ? styles.planTextPro : styles.planTextFree,
+        ]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
+        {user?.plan === "pro" ? "Pro" : "Free"}
+      </Text>
+    </View>
+  </View>
+
+  <View style={styles.profileAction}>
+    <Button
+      label="회원정보 수정"
+      onPress={handleOpenProfileEdit}
+      style={styles.profileActionButton}
+    />
+  </View>
+</View>
 
         {isEditingProfile ? (
           <View style={styles.editSection}>
@@ -298,32 +276,26 @@ export default function MyPageScreen() {
           </View>
         ) : null}
 
-        {/* 스토리지 */}
+        { /* 스토리지 */}
         <View style={styles.storageCard}>
           <View style={styles.storageRow}>
             <Text style={styles.storageLabel}>스토리지 사용량</Text>
-            <Text style={styles.storageValue}>
-              {user?.storageUsed.toFixed(1)}GB / {user?.storageLimit}GB
-            </Text>
+            <Text style={styles.storageValue}>{user?.storageUsed.toFixed(1)}GB / {user?.storageLimit}GB</Text>
           </View>
           <View style={styles.storageBar}>
-            <View
-              style={[
-                styles.storageBarFill,
-                { width: `${storagePercent}%` as any },
-              ]}
-            />
+            <View style={[styles.storageBarFill, { width: `${storagePercent}%` as any }]} />
           </View>
         </View>
 
         {/* 비밀번호 설정 */}
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>계정 설정</Text>
+          <MenuItem icon="pencil-outline" label="닉네임 수정" onPress={handleOpenProfileEdit} value={user?.nickname}/>
+          <View style={styles.divider} />
+          <MenuItem icon="lock-closed-outline" label="비밀번호 변경" onPress={handleStartPasswordChange}/>
+          <View style={styles.divider} />
+          <MenuItem icon="keypad-outline" label="PIN 번호 재설정" onPress={() => router.push('/(auth)/pin-setup' as any)} />
           <Text style={styles.sectionTitle}>비밀번호 설정</Text>
-          <MenuItem
-            icon="keypad-outline"
-            label="PIN 번호 재설정"
-            onPress={() => router.push("/(auth)/pin-setup" as any)}
-          />
           <View style={styles.divider} />
           <MenuItem
             icon="finger-print-outline"
@@ -344,7 +316,7 @@ export default function MyPageScreen() {
             onPress={() => {}}
             toggle
             toggleValue={pushEnabled}
-            onToggle={setPushEnabled}
+            onToggle={handlePushToggle}
           />
           <View style={styles.divider} />
           <MenuItem
@@ -360,55 +332,29 @@ export default function MyPageScreen() {
         {/* 요금제 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>요금제 관리</Text>
-          {user?.plan === "free" ? (
-            <TouchableOpacity
-              style={styles.upgradeBtn}
-              onPress={() => router.push("/pro-promotion" as any)}
-            >
+          {user?.plan === 'free' ? (
+            <TouchableOpacity style={styles.upgradeBtn} onPress={() => router.push('/pro-promotion' as any)}>
               <View>
                 <Text style={styles.upgradeTitle}>Pro로 업그레이드</Text>
-                <Text style={styles.upgradeDesc}>
-                  AI 소비분석 · 월별 리포트 · 마스킹 기능
-                </Text>
+                <Text style={styles.upgradeDesc}>AI 소비분석 · 월별 리포트 · 마스킹 기능</Text>
               </View>
               <View style={styles.upgradeArrow}>
-                <Ionicons
-                  name="chevron-forward"
-                  size={20}
-                  color={Colors.white}
-                />
+                <Ionicons name="chevron-forward" size={20} color={Colors.white} />
               </View>
             </TouchableOpacity>
           ) : (
-            <MenuItem
-              icon="star-outline"
-              label="Pro 플랜 관리"
-              onPress={() => router.push("/pro-promotion" as any)}
-            />
+            <MenuItem icon="star-outline" label="Pro 플랜 관리" onPress={() => router.push('/pro-promotion' as any)} />
           )}
         </View>
 
         {/* 약관 및 기타 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>기타</Text>
-          <MenuItem
-            icon="document-text-outline"
-            label="이용약관"
-            onPress={() => {}}
-          />
+          <MenuItem icon="document-text-outline" label="이용약관" onPress={() => {}} />
           <View style={styles.divider} />
-          <MenuItem
-            icon="shield-outline"
-            label="개인정보처리방침"
-            onPress={() => {}}
-          />
+          <MenuItem icon="shield-outline" label="개인정보처리방침" onPress={() => {}} />
           <View style={styles.divider} />
-          <MenuItem
-            icon="information-circle-outline"
-            label="앱 버전"
-            onPress={() => {}}
-            value="1.0.0"
-          />
+          <MenuItem icon="information-circle-outline" label="앱 버전" onPress={() => {}} value="1.0.0" />
         </View>
 
         <Modal visible={passwordModalVisible} transparent animationType="fade">
@@ -492,19 +438,9 @@ export default function MyPageScreen() {
 
         {/* 로그아웃 / 탈퇴 */}
         <View style={styles.section}>
-          <MenuItem
-            icon="log-out-outline"
-            label="로그아웃"
-            onPress={handleLogout}
-            danger
-          />
+          <MenuItem icon="log-out-outline" label="로그아웃" onPress={handleLogout} danger />
           <View style={styles.divider} />
-          <MenuItem
-            icon="trash-outline"
-            label="회원탈퇴"
-            onPress={handleWithdraw}
-            danger
-          />
+          <MenuItem icon="trash-outline" label="회원탈퇴" onPress={handleWithdraw} danger />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -554,18 +490,7 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1, gap: Spacing.xs },
   profileAction: { justifyContent: "center" },
   profileActionButton: { minWidth: 110, alignSelf: "flex-end" },
-  editHeader: {
-    position: "absolute",
-    top: Spacing.lg,
-    right: Spacing.lg,
-    zIndex: 1,
-  },
-  editCloseText: {
-    fontSize: 14,
-    color: Colors.gray500,
-    fontWeight: "600",
-    textAlign: "right",
-  },
+
   nickname: { fontSize: 18, fontWeight: "700", color: Colors.gray900 },
   email: { fontSize: 13, color: Colors.gray500 },
   planBadge: {
@@ -584,6 +509,51 @@ const styles = StyleSheet.create({
   },
   planTextFree: { color: Colors.gray500 },
   planTextPro: { color: Colors.pro },
+
+  editSection: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    paddingTop: Spacing.xl,
+    gap: Spacing.sm,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  editHeader: {
+    position: "absolute",
+    top: Spacing.lg,
+    right: Spacing.lg,
+    zIndex: 1,
+  },
+  editCloseText: {
+    fontSize: 14,
+    color: Colors.gray500,
+    fontWeight: "600",
+    textAlign: "right",
+  },
+  sectionSubTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.gray900,
+    marginTop: Spacing.md,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: Colors.gray100,
+    marginVertical: Spacing.md,
+  },
+  noticeText: {
+    fontSize: 13,
+    color: Colors.primary,
+    marginTop: Spacing.sm,
+  },
 
   storageCard: {
     backgroundColor: Colors.white,
@@ -660,7 +630,11 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   menuLabelDanger: { color: Colors.error },
-  menuRight: { flexDirection: "row", alignItems: "center", gap: Spacing.xs },
+  menuRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
   menuValue: { fontSize: 14, color: Colors.gray400 },
   divider: {
     height: 1,
@@ -678,38 +652,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   upgradeTitle: { fontSize: 15, fontWeight: "700", color: Colors.white },
-  editSection: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    paddingTop: Spacing.xl,
-    gap: Spacing.sm,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
+  upgradeDesc: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    marginTop: 2,
   },
-  sectionSubTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Colors.gray900,
-    marginTop: Spacing.md,
+  upgradeArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: Colors.gray100,
-    marginVertical: Spacing.md,
-  },
-  noticeText: {
-    fontSize: 13,
-    color: Colors.primary,
-    marginTop: Spacing.sm,
-  },
+
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",
@@ -748,14 +704,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginBottom: Spacing.sm,
-  },
-  upgradeDesc: { fontSize: 12, color: "rgba(255,255,255,0.8)", marginTop: 2 },
-  upgradeArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.full,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
   },
 });
