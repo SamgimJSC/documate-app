@@ -3,7 +3,7 @@ import { Colors, Radius, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/stores/auth-store";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type Step = "enter" | "confirm";
@@ -18,6 +18,7 @@ export default function PinSetupScreen() {
   const [firstPin, setFirstPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
 
   const handleEnter = (val: string) => {
     setFirstPin(val);
@@ -33,7 +34,7 @@ export default function PinSetupScreen() {
         setPin(val);
         setPinVerified(true);
         if (source) {
-          router.replace("/(auth)/biometric-setup" as any);
+          setShowCompleteModal(true);
         } else {
           router.replace("/(tabs)" as any);
         }
@@ -66,6 +67,36 @@ export default function PinSetupScreen() {
           onChange={step === "enter" ? handleEnter : handleConfirm}
         />
       </View>
+      <Modal visible={showCompleteModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>회원가입 완료</Text>
+            <Text style={styles.modalDescription}>
+              PIN 등록이 완료되었습니다. 지금 바로 이용하거나 생체인증을 등록할
+              수 있습니다.
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalPrimary]}
+              onPress={() => {
+                useAuthStore.setState({
+                  isAuthenticated: false,
+                  isPinVerified: false,
+                  token: null,
+                });
+                router.replace("/(auth)/login" as any);
+              }}
+            >
+              <Text style={styles.modalPrimaryText}>이용을 시작하기</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalSecondary]}
+              onPress={() => router.replace("/(auth)/biometric-setup" as any)}
+            >
+              <Text style={styles.modalSecondaryText}>생체인증 등록하기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -96,4 +127,43 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   error: { fontSize: 14, color: Colors.error, textAlign: "center" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.md,
+  },
+  modalContent: {
+    width: "100%",
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.white,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: Colors.gray900,
+    textAlign: "center",
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: Colors.gray500,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  modalButton: {
+    borderRadius: Radius.md,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  modalPrimary: { backgroundColor: Colors.primary },
+  modalPrimaryText: { color: Colors.white, fontSize: 16, fontWeight: "700" },
+  modalSecondary: { borderWidth: 1, borderColor: Colors.primary },
+  modalSecondaryText: {
+    color: Colors.primary,
+    fontSize: 16,
+    fontWeight: "700",
+  },
 });
