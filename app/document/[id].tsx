@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -21,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const [downloading, setDownloading] = useState(false);
   const { documents, toggleFavorite, removeDocument, updateDocument } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
@@ -101,17 +103,25 @@ export default function DocumentDetailScreen() {
             />
           </TouchableOpacity>
           <TouchableOpacity
+            disabled={downloading}
             onPress={async () => {
+              setDownloading(true);
               try {
                 const testUrl = 'https://pdfobject.com/pdf/sample.pdf';
                 const ok = await downloadPdf(testUrl, `${doc.title}.pdf`);
                 Alert.alert(ok ? '저장 완료' : '저장 취소', ok ? 'PDF가 저장되었습니다.' : '');
               } catch (e) {
                 Alert.alert('다운로드 실패', '파일을 받지 못했습니다.');
+              } finally {
+                setDownloading(false);
               }
             }}
             style={styles.headerBtn}>
-            <Ionicons name="download-outline" size={22} color={Colors.primary} />
+            {downloading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Ionicons name="download-outline" size={22} color={Colors.primary} />
+            )}
           </TouchableOpacity>
           <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
             <Ionicons name="trash-outline" size={22} color={Colors.error} />
