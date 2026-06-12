@@ -14,6 +14,7 @@ interface NotifItem {
   body: string;
   time: string;
   read: boolean;
+  docId?: string; // 연결된 문서 id (있으면 누를 때 그 문서로 이동)
 }
 
 const today = new Date().toISOString().split('T')[0];
@@ -37,6 +38,7 @@ export default function NotificationScreen() {
         body: `"${doc.title}"이(가) ${days !== null && days <= 0 ? '이미 만료되었습니다.' : `${days}일 후 만료됩니다.`}`,
         time: '방금 전',
         read: i > 0,
+        docId: doc.id,
       });
     });
     notifs.push({
@@ -64,6 +66,14 @@ export default function NotificationScreen() {
     setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
+  // 알림 누르면: 읽음 처리 후, 연결된 문서가 있으면 그 문서 상세로 이동
+  const handleNotifPress = (notif: NotifItem) => {
+    setNotifs((prev) => prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n)));
+    if (notif.docId) {
+      router.push(`/document/${notif.docId}`);
+    }
+  };
+
   const unreadCount = notifs.filter((n) => !n.read).length;
 
   const getNotifIcon = (type: NotifItem['type']) => {
@@ -86,7 +96,7 @@ export default function NotificationScreen() {
         )}
       </View>
 
-      {/* TODO: 🔧 테스트용 버튼 (확인 끝나면 이 블록 삭제) */}
+      {/* 🔧 테스트용 버튼 (확인 끝나면 이 블록 삭제) */}
       <View style={styles.testRow}>
         <TouchableOpacity
           style={styles.testBtn}
@@ -126,7 +136,7 @@ export default function NotificationScreen() {
               <TouchableOpacity
                 key={notif.id}
                 style={[styles.notifCard, !notif.read && styles.notifCardUnread]}
-                onPress={() => setNotifs((prev) => prev.map((n) => n.id === notif.id ? { ...n, read: true } : n))}>
+                onPress={() => handleNotifPress(notif)}>
                 <View style={[styles.notifIconWrap, { backgroundColor: icon.bg }]}>
                   <Ionicons name={icon.name} size={20} color={icon.color} />
                 </View>
@@ -135,6 +145,9 @@ export default function NotificationScreen() {
                   <Text style={styles.notifBody}>{notif.body}</Text>
                   <Text style={styles.notifTime}>{notif.time}</Text>
                 </View>
+                {notif.docId && (
+                  <Ionicons name="chevron-forward" size={16} color={Colors.gray300} />
+                )}
                 {!notif.read && <View style={styles.unreadDot} />}
               </TouchableOpacity>
             );
