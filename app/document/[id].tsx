@@ -1,6 +1,7 @@
 import { Badge } from '@/components/common/badge';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { downloadPdf } from '@/services/download';
+import { cancelNotification } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -45,7 +46,11 @@ export default function DocumentDetailScreen() {
       {
         text: '삭제',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
+          // 이 문서에 예약된 알림 모두 취소
+          for (const n of doc.notifications) {
+            if (n.id) await cancelNotification(n.id);
+          }
           removeDocument(doc.id);
           router.back();
         },
