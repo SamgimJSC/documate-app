@@ -122,7 +122,19 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   verifyPin: (pin) => {
     const isCorrect = get().pin === pin;
-    if (isCorrect) set({ isPinVerified: true, isAuthenticated: true });
+    if (isCorrect) {
+      set({
+        user:
+          get().user ??
+          ({
+            ...MOCK_USER,
+            email: get().user?.email ?? MOCK_USER.email,
+          } as User),
+        token: get().token ?? "mock-jwt-token",
+        isPinVerified: true,
+        isAuthenticated: true,
+      });
+    }
     return isCorrect;
   },
 

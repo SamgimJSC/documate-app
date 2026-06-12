@@ -21,7 +21,6 @@ export default function LoginScreen() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
   const isBiometricEnabled = useAuthStore((s) => s.isBiometricEnabled);
-  const isPinSet = useAuthStore((s) => s.isPinSet);
   const setPinVerified = useAuthStore((s) => s.setPinVerified);
   const [email, setEmail] = useState("test@test");
   const [password, setPassword] = useState("test");
@@ -45,8 +44,15 @@ export default function LoginScreen() {
     }
   };
 
+  const isPinSet = useAuthStore((s) => s.isPinSet);
+
   const handlePinLogin = () => {
-    router.push(`/(auth)/${isPinSet ? "pin-verify" : "pin-setup"}` as any);
+    setError("");
+    if (!isPinSet) {
+      router.push("/(auth)/pin-setup" as any);
+      return;
+    }
+    router.push("/(auth)/pin-verify" as any);
   };
 
   const handleBiometricLogin = async () => {
