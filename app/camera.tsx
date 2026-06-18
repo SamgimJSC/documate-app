@@ -27,8 +27,8 @@ export default function CameraScreen() {
   const [state, setState] = useState<UploadState>('idle');
 
   // TODO: OCR 연동 시 이 함수를 CLOVA API 호출로 교체
-// 현재는 시험 단계라 가짜 분석(딜레이 후 빈 문서 생성) 유지
-const simulateAnalysis = async (isReceipt: boolean, fileUri?: string) => {
+  // 현재는 시험 단계라 가짜 분석(딜레이 후 빈 문서 생성) 유지
+  const simulateAnalysis = async (isReceipt: boolean, fileUri?: string) => {
     setState('uploading');
     await new Promise((r) => setTimeout(r, 800));
     setState('analyzing');
@@ -96,7 +96,7 @@ const simulateAnalysis = async (isReceipt: boolean, fileUri?: string) => {
       quality: 0.8,
       allowsMultipleSelection: false,
     });
-  if (!result.canceled) {
+    if (!result.canceled) {
       await simulateAnalysis(false, result.assets[0].uri);
     }
   };
@@ -121,6 +121,26 @@ const simulateAnalysis = async (isReceipt: boolean, fileUri?: string) => {
     if (!result.canceled) {
       await simulateAnalysis(true, result.assets[0].uri);
     }
+  };
+
+  // 수기 등록: OCR 없이 빈 문서를 만들고 바로 수정 화면으로 이동
+  const handleManual = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const id = `doc-${Date.now()}`;
+    const newDoc: Document = {
+      id,
+      title: '',
+      category: '기타',
+      uploadedAt: today,
+      tags: [],
+      isFavorite: false,
+      status: 'active',
+      extractedData: {},
+      notifications: [],
+    };
+    addDocument(newDoc);
+    // 방금 만든 문서의 수정 화면으로 이동 (manual=1 → 사진 첨부 + 빈문서 자동삭제 활성화)
+    router.replace(`/document/edit/${id}?manual=1`);
   };
 
   const isLoading = state === 'uploading' || state === 'analyzing';
@@ -174,6 +194,18 @@ const simulateAnalysis = async (isReceipt: boolean, fileUri?: string) => {
               <Text style={styles.optionDesc}>PDF 문서 불러오기</Text>
             </TouchableOpacity>
           </View>
+
+          {/* 수기 등록 (OCR 미사용) */}
+          <TouchableOpacity style={styles.manualOption} onPress={handleManual}>
+            <View style={[styles.optionIcon, { backgroundColor: Colors.gray100 }]}>
+              <Ionicons name="create-outline" size={28} color={Colors.gray700} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optionLabel}>수기로 등록</Text>
+              <Text style={styles.optionDesc}>OCR 없이 직접 정보 입력</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.gray300} />
+          </TouchableOpacity>
 
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
@@ -239,6 +271,18 @@ const styles = StyleSheet.create({
   optionIcon: { width: 56, height: 56, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center' },
   optionLabel: { fontSize: 13, fontWeight: '700', color: Colors.gray800, textAlign: 'center' },
   optionDesc: { fontSize: 11, color: Colors.gray500, textAlign: 'center' },
+  manualOption: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
+      android: { elevation: 2 },
+    }),
+  },
   divider: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   dividerLine: { flex: 1, height: 1, backgroundColor: Colors.gray200 },
   dividerText: { fontSize: 13, color: Colors.gray500, fontWeight: '600' },
