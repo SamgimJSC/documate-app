@@ -2,6 +2,7 @@ import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Colors, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/stores/auth-store";
+import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useRef, useState } from "react";
@@ -19,8 +20,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function RegisterScreen() {
   const router = useRouter();
   const register = useAuthStore((s) => s.register);
-  // ↓ 중복 이메일 예외 처리 함수
-  const checkEmailExists = useAuthStore((s) => s.checkEmailExists);
   const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +28,6 @@ export default function RegisterScreen() {
   const [enteredCode, setEnteredCode] = useState("");
   const [emailSent, setEmailSent] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
-  const [emailChecked, setEmailChecked] = useState(false);
   const [emailAvailable, setEmailAvailable] = useState<boolean | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
@@ -38,6 +36,7 @@ export default function RegisterScreen() {
   const [termFocus, setTermFocus] = useState(false);
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [termsY, setTermsY] = useState<number>(0);
+  const [emailVerificationId, setEmailVerificationId] = useState("");
   const scrollRef = useRef<ScrollView | null>(null);
 
   const passwordHasLetter = /[a-z]/i.test(password);
@@ -67,11 +66,12 @@ export default function RegisterScreen() {
   const canProceed =
     emailVerified &&
     password &&
+    password.length >= 8 &&
+    passwordCriteriaMatched &&
     confirm &&
     password === confirm &&
     acceptedTerms &&
     acceptedPrivacy &&
-    acceptedPush &&
     !loading;
 
   const handlePasswordChange = (text: string) => {
@@ -113,7 +113,6 @@ export default function RegisterScreen() {
     if (password !== confirm) e.confirm = "비밀번호가 일치하지 않습니다.";
     if (!acceptedTerms) e.terms = "이용약관 동의가 필요합니다.";
     if (!acceptedPrivacy) e.privacy = "개인정보처리방침 동의가 필요합니다.";
-    if (!acceptedPush) e.push = "알림 수신 동의가 필요합니다.";
     setErrors(e);
     const termIssue = !acceptedTerms || !acceptedPrivacy || !acceptedPush;
     setTermFocus(termIssue);
@@ -125,19 +124,16 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (!validate()) return;
-    setLoading(true);
-    try {
-      await register(email, password, nickname);
-      router.replace("/(auth)/pin-setup?source=register" as any);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error && err.message === "EMAIL_TAKEN"
-          ? "이미 등록된 이메일입니다."
-          : "회원가입에 실패했습니다.";
-      setErrors({ general: message });
-    } finally {
-      setLoading(false);
-    }
+    router.push({
+      pathname: "/(auth)/pin-setup",
+      params: {
+        source: "register",
+        email,
+        password,
+        nickname,
+        emailVerificationId,
+      },
+    });
   };
 
   return (
@@ -175,80 +171,36 @@ export default function RegisterScreen() {
                 onChangeText={setNickname}
                 error={errors.nickname}
               />
-              <View style={styles.emailRow}>
-                <View style={styles.emailInputWrapper}>
-                  <Input
-                    label="이메일"
-                    placeholder="이메일 주소 입력"
-                    value={email}
-                    onChangeText={(text) => {
-                      setEmail(text);
-                      setEmailVerified(false);
-                      setEmailSent(false);
-                      setEmailChecked(false);
-                      setEmailAvailable(null);
-                      setEnteredCode("");
-                    }}
-                    keyboardType="email-address"
-                    error={errors.email ? " " : undefined}
-                  />
-                </View>
-                <Button
-                  label="중복 확인"
-                  onPress={() => {
-                    if (!email || !/\S+@\S+\.\S+/.test(email)) {
-                      setErrors((prev) => ({
-                        ...prev,
-                        email: "올바른 이메일을 입력해주세요.",
-                      }));
-                      setEmailChecked(false);
-                      return;
-                    }
-                    const exists = checkEmailExists(email);
-                    setEmailChecked(true);
-                    setEmailAvailable(!exists);
-                    setErrors((prev) => ({
-                      ...prev,
-                      general: exists ? "이미 등록된 이메일입니다." : undefined,
-                      email: undefined,
-                    }));
-                  }}
-                  variant="outline"
-                  fullWidth={false}
-                  style={styles.emailCheckButton}
-                />
-              </View>
+              <Input
+                label="이메일"
+                placeholder="이메일 주소 입력"
+                value={email}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  setEmailVerified(false);
+                  setEmailSent(false);
+                  setEmailAvailable(null);
+                  setEnteredCode("");
+                }}
+                keyboardType="email-address"
+                error={errors.email}
+              />
+
               <View style={styles.emailMeta}>
-                {errors.email ? (
-                  <Text style={styles.emailError}>{errors.email}</Text>
-                ) : emailChecked ? (
-                  <Text
-                    style={
-                      emailAvailable
-                        ? styles.availableText
-                        : styles.unavailableText
-                    }
-                  >
-                    {emailAvailable
-                      ? "사용 가능한 이메일입니다."
-                      : "이미 등록된 이메일입니다."}
+                {emailAvailable === false ? (
+                  <Text style={styles.unavailableText}>
+                    이미 등록된 이메일입니다.
                   </Text>
-                ) : (
-                  <Text style={styles.checkPrompt}>
-                    이메일 중복 확인을 진행해주세요.
+                ) : emailAvailable === true ? (
+                  <Text style={styles.availableText}>
+                    사용 가능한 이메일입니다.
                   </Text>
-                )}
+                ) : null}
               </View>
+
               <Button
                 label={emailSent ? "인증번호 재요청" : "이메일 인증번호 받기"}
-                onPress={() => {
-                  if (!emailChecked) {
-                    setErrors((prev) => ({
-                      ...prev,
-                      emailCode: "이메일 중복 확인을 진행해주세요.",
-                    }));
-                    return;
-                  }
+                onPress={async () => {
                   if (!email || !/\S+@\S+\.\S+/.test(email)) {
                     setErrors((prev) => ({
                       ...prev,
@@ -256,37 +208,41 @@ export default function RegisterScreen() {
                     }));
                     return;
                   }
-                  if (emailAvailable === false) {
+                  try {
+                    const response = await axiosInstance.post(
+                      "/auth/email-verification/send",
+                      { email, purpose: "SIGNUP" },
+                    );
+                    setEmailVerificationId(
+                      response.data.data?.emailVerificationId || "",
+                    );
+                    setEmailAvailable(true);
+                    setEmailSent(true);
+                    setEmailVerified(false);
                     setErrors((prev) => ({
                       ...prev,
-                      general: "이미 등록된 이메일입니다.",
+                      email: undefined,
+                      emailCode: undefined,
+                      general: undefined,
                     }));
-                    return;
+                  } catch (err: unknown) {
+                    const errMsg =
+                      err instanceof Error ? err.message : "인증번호 발송 실패";
+                    setEmailAvailable(false);
+                    setErrors((prev) => ({
+                      ...prev,
+                      general: errMsg,
+                    }));
                   }
-                  setEmailCode("123456");
-                  setEmailSent(true);
-                  setEmailVerified(false);
-                  setErrors((prev) => ({
-                    ...prev,
-                    email: undefined,
-                    emailCode: undefined,
-                    general: undefined,
-                  }));
                 }}
                 variant="outline"
-                disabled={!emailChecked || (emailSent && emailVerified)}
+                disabled={emailVerified}
                 style={styles.verifyButton}
               />
-              {!emailChecked ? (
-                <Text style={styles.checkPrompt}>
-                  이메일 중복 확인을 진행해주세요.
-                </Text>
-              ) : null}
               {emailSent ? (
                 <>
                   <Text style={styles.hintText}>
-                    테스트용 인증번호는{" "}
-                    <Text style={styles.hintCode}>123456</Text> 입니다.
+                    이메일로 발송된 인증번호를 입력해주세요.
                   </Text>
                   <Input
                     label="인증번호"
@@ -301,20 +257,34 @@ export default function RegisterScreen() {
                   />
                   <Button
                     label={emailVerified ? "인증완료" : "인증번호 확인"}
-                    onPress={() => {
-                      if (
-                        enteredCode === emailCode &&
-                        enteredCode.length === 6
-                      ) {
+                    onPress={async () => {
+                      if (!enteredCode || enteredCode.length !== 6) {
+                        setErrors((prev) => ({
+                          ...prev,
+                          emailCode: "인증번호 6자리를 입력해주세요.",
+                        }));
+                        return;
+                      }
+                      try {
+                        const response = await axiosInstance.post(
+                          "/auth/email-verification/verify",
+                          { emailVerificationId, codeNumber: enteredCode },
+                        );
                         setEmailVerified(true);
+                        setEmailVerificationId(
+                          response.data.data?.emailVerificationId ||
+                            emailVerificationId,
+                        );
                         setErrors((prev) => ({
                           ...prev,
                           emailCode: undefined,
                         }));
-                      } else {
+                      } catch (err: unknown) {
+                        const errMsg =
+                          err instanceof Error ? err.message : "인증 실패";
                         setErrors((prev) => ({
                           ...prev,
-                          emailCode: "인증번호가 올바르지 않습니다.",
+                          emailCode: errMsg,
                         }));
                       }
                     }}
@@ -322,6 +292,11 @@ export default function RegisterScreen() {
                     variant={emailVerified ? "secondary" : "primary"}
                     style={styles.verifyButton}
                   />
+                  {emailVerified && (
+                    <Text style={styles.successMessage}>
+                      인증이 완료되었습니다!
+                    </Text>
+                  )}
                 </>
               ) : null}
               <Input
@@ -579,4 +554,12 @@ const styles = StyleSheet.create({
   checkboxRequired: { color: Colors.gray700 },
   checkboxRequiredError: { color: Colors.error },
   smallError: { fontSize: 12, color: Colors.error, marginTop: -Spacing.sm },
+  successMessage: {
+    fontSize: 14,
+    color: Colors.success,
+    fontWeight: "600",
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.md,
+    textAlign: "center",
+  },
 });

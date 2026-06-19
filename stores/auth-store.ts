@@ -65,10 +65,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   login: async (email, _password) => {
     await new Promise((r) => setTimeout(r, 800));
-    const currentPassword = get().password;
-    if (_password !== currentPassword) {
-      throw new Error("INVALID_PASSWORD");
-    }
+    // API에서 이미 인증됨 → Mock 검증 제거
     set({
       user: { ...MOCK_USER, email },
       token: "mock-jwt-token",

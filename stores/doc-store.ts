@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import { Document, MOCK_DOCUMENTS } from '@/constants/mock-data';
+import { Document } from "@/constants/mock-data";
+import { create } from "zustand";
 
 interface DocState {
   documents: Document[];
@@ -7,6 +7,7 @@ interface DocState {
   selectedCategory: string | null;
 
   addDocument: (doc: Document) => void;
+  setDocument: (docs: Document[]) => void;
   removeDocument: (id: string) => void;
   toggleFavorite: (id: string) => void;
   setSearchQuery: (q: string) => void;
@@ -16,12 +17,15 @@ interface DocState {
 }
 
 export const useDocStore = create<DocState>()((set, get) => ({
-  documents: MOCK_DOCUMENTS,
-  searchQuery: '',
+  // documents: MOCK_DOCUMENTS,
+  documents: [],
+  searchQuery: "",
   selectedCategory: null,
 
   addDocument: (doc) =>
     set((state) => ({ documents: [doc, ...state.documents] })),
+
+  setDocument: (docs) => set(() => ({ documents: docs })),
 
   removeDocument: (id) =>
     set((state) => ({ documents: state.documents.filter((d) => d.id !== id) })),
@@ -29,7 +33,7 @@ export const useDocStore = create<DocState>()((set, get) => ({
   toggleFavorite: (id) =>
     set((state) => ({
       documents: state.documents.map((d) =>
-        d.id === id ? { ...d, isFavorite: !d.isFavorite } : d
+        d.id === id ? { ...d, isFavorite: !d.isFavorite } : d,
       ),
     })),
 
@@ -40,7 +44,7 @@ export const useDocStore = create<DocState>()((set, get) => ({
   updateDocument: (id, updates) =>
     set((state) => ({
       documents: state.documents.map((d) =>
-        d.id === id ? { ...d, ...updates } : d
+        d.id === id ? { ...d, ...updates } : d,
       ),
     })),
 
@@ -50,7 +54,9 @@ export const useDocStore = create<DocState>()((set, get) => ({
       const matchesSearch =
         !searchQuery ||
         doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        doc.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+        doc.tags.some((t) =>
+          t.toLowerCase().includes(searchQuery.toLowerCase()),
+        );
       const matchesCategory =
         !selectedCategory || doc.category === selectedCategory;
       return matchesSearch && matchesCategory;
