@@ -1,5 +1,5 @@
+import { Document } from '@/constants/mock-data';
 import { create } from 'zustand';
-import { Document, MOCK_DOCUMENTS } from '@/constants/mock-data';
 
 interface DocState {
   documents: Document[];
@@ -16,7 +16,8 @@ interface DocState {
 }
 
 export const useDocStore = create<DocState>()((set, get) => ({
-  documents: MOCK_DOCUMENTS,
+  // documents: MOCK_DOCUMENTS,
+  documents: [],
   searchQuery: '',
   selectedCategory: null,
 

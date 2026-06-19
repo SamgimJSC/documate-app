@@ -4,7 +4,7 @@ import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Platform,
   ScrollView,
@@ -39,6 +39,11 @@ export default function CabinetScreen() {
     setCatFilter(cat);
     setSelectedCategory(cat === '전체' ? null : cat);
   };
+
+
+  useEffect(() => {
+    // axios.get()
+  },[]);
 
   // 카테고리/검색 필터 결과
   let docs = getFilteredDocuments();

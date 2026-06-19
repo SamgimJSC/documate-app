@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -143,6 +144,13 @@ export default function DocumentDetailScreen() {
             <Text style={styles.previewDate}>업로드: {doc.uploadedAt}</Text>
           </View>
         </View>
+
+        {/* 첨부 이미지 (있을 때만) */}
+        {doc.imageUri && (
+          <View style={styles.imageCard}>
+            <Image source={{ uri: doc.imageUri }} style={styles.docImage} resizeMode="cover" />
+          </View>
+        )}
 
         {/* 만료일 정보 */}
         {doc.expiryDate && (
@@ -290,6 +298,16 @@ const styles = StyleSheet.create({
   previewTitle: { fontSize: 16, fontWeight: '700', color: Colors.gray900 },
   previewMeta: { flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap' },
   previewDate: { fontSize: 12, color: Colors.gray400 },
+  imageCard: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.sm,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
+      android: { elevation: 2 },
+    }),
+  },
+  docImage: { width: '100%', height: 220, borderRadius: Radius.md, backgroundColor: Colors.gray100 },
   expiryCard: { borderRadius: Radius.lg, padding: Spacing.lg, flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   expiryCardNormal: { backgroundColor: Colors.primaryLight },
   expiryCardUrgent: { backgroundColor: Colors.warningLight },

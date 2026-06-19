@@ -83,8 +83,13 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="camera"
-          options={{ headerShown: false, presentation: "fullScreenModal" }}
+          options={{
+            headerShown: false,
+            presentation: "transparentModal",
+            animation: "slide_from_bottom",
+          }}
         />
+        <Stack.Screen name="upload-progress" options={{ headerShown: false }} />
         <Stack.Screen name="document/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="document/edit/[id]" options={{ headerShown: false }} />
         <Stack.Screen

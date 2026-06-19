@@ -10,7 +10,6 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -102,8 +101,6 @@ export default function DocumentEditScreen() {
   // 갤러리에서 사진 선택
   const pickFromGallery = async () => {
     setPhotoSheetOpen(false);
-    // 모달이 완전히 닫힌 뒤에 picker를 열어야 충돌 없이 열림
-    await new Promise((r) => setTimeout(r, 400));
     const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
     if (!result.canceled) setImageUri(result.assets[0].uri);
   };
@@ -111,7 +108,6 @@ export default function DocumentEditScreen() {
   // 카메라로 촬영
   const takePhoto = async () => {
     setPhotoSheetOpen(false);
-    await new Promise((r) => setTimeout(r, 400));
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('권한 필요', '카메라 접근 권한이 필요합니다.');
@@ -175,7 +171,16 @@ export default function DocumentEditScreen() {
       imageUri,
     });
 
-    // 수정된 값이 반영된 상세 페이지로 이동 (뒤로가기 시 수정 화면 안 거치도록 replace)
+    // 수기 등록이고 사진이 있으면 업로드 진행 화면을 거쳐 상세로
+    if (isManual && imageUri) {
+      router.replace({
+        pathname: '/upload-progress',
+        params: { uris: JSON.stringify([imageUri]), manual: '1', docId: doc.id },
+      });
+      return;
+    }
+
+    // 그 외에는 바로 상세 페이지로
     router.replace(`/document/${doc.id}`);
   };
 
@@ -375,16 +380,14 @@ export default function DocumentEditScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* 사진 첨부 바텀시트 */}
-      <Modal
-        visible={photoSheetOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setPhotoSheetOpen(false)}>
-        <TouchableOpacity
-          style={styles.sheetOverlay}
-          activeOpacity={1}
-          onPress={() => setPhotoSheetOpen(false)}>
+      {/* 사진 첨부 바텀시트 (Modal 대신 절대위치 View — picker 충돌 방지) */}
+      {photoSheetOpen && (
+        <View style={styles.sheetRoot}>
+          <TouchableOpacity
+            style={styles.sheetOverlay}
+            activeOpacity={1}
+            onPress={() => setPhotoSheetOpen(false)}
+          />
           <View style={styles.sheetWrap}>
             <View style={styles.sheetCard}>
               <Text style={styles.sheetTitle}>사진 첨부</Text>
@@ -404,8 +407,8 @@ export default function DocumentEditScreen() {
               <Text style={styles.sheetCancelText}>취소</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
-      </Modal>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -539,12 +542,18 @@ const styles = StyleSheet.create({
   },
   imageBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
 
-  sheetOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+  sheetRoot: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
     justifyContent: 'flex-end',
+    zIndex: 100,
   },
-  sheetWrap: { padding: Spacing.sm, gap: Spacing.sm },
+  sheetOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  sheetWrap: { padding: Spacing.sm, gap: Spacing.sm, zIndex: 101 },
   sheetCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, overflow: 'hidden' },
   sheetTitle: {
     textAlign: 'center',
