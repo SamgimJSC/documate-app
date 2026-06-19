@@ -12,6 +12,7 @@ export const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     gap: Spacing.md,
   },
+
   backBtn: { padding: Spacing.xs },
   headerTitle: { fontSize: 18, fontWeight: "600", color: Colors.white },
   card: {
@@ -29,7 +30,7 @@ export const styles = StyleSheet.create({
   },
   emailRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: Spacing.sm,
   },
   emailInputWrap: { flex: 1 },

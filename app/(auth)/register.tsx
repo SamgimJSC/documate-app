@@ -4,6 +4,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+
+import { styles } from "@/styles/register.styles";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -14,7 +16,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { styles } from "./register.styles";
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -337,6 +338,7 @@ export default function RegisterScreen() {
                 value={confirm}
                 onChangeText={handleConfirmChange}
                 isPassword
+                autoComplete="off" // ← 추가
                 error={errors.confirm}
               />
             </View>
@@ -348,6 +350,7 @@ export default function RegisterScreen() {
                 placeholder="사용할 닉네임 입력"
                 value={nickname}
                 onChangeText={setNickname}
+                autoComplete="off" // ← 추가
                 error={errors.nickname}
               />
             </View>

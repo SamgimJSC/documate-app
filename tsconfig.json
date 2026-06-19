@@ -23,6 +23,7 @@
     "types/**/*.ts",
     "types/**/*.tsx",
     "expo-env.d.ts",
+    "styles/**/*.ts",
     ".expo/types/**/*.ts",
     "types/env.d.ts"
   ],
