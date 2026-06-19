@@ -1,6 +1,5 @@
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
-import { Colors, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,12 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { styles } from "./register.styles";
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -24,7 +23,6 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [emailCode, setEmailCode] = useState("");
   const [enteredCode, setEnteredCode] = useState("");
   const [emailSent, setEmailSent] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
@@ -39,36 +37,38 @@ export default function RegisterScreen() {
   const [emailVerificationId, setEmailVerificationId] = useState("");
   const scrollRef = useRef<ScrollView | null>(null);
 
-  const passwordHasLetter = /[a-z]/i.test(password);
-  const passwordHasNumber = /\d/.test(password);
-  const passwordHasSymbol = /[^A-Za-z0-9]/.test(password);
+  const passwordHasLetter = password.length > 0 && /[a-z]/i.test(password);
+  const passwordHasNumber = password.length > 0 && /\d/.test(password);
+  const passwordHasSymbol =
+    password.length > 0 && /[^A-Za-z0-9]/.test(password);
   const passwordTypeCount = [
     passwordHasLetter,
     passwordHasNumber,
     passwordHasSymbol,
   ].filter(Boolean).length;
   const passwordCriteriaMatched = passwordTypeCount >= 2;
-  const passwordStrengthLabel = password.length
-    ? passwordTypeCount === 1
-      ? "약함"
-      : passwordTypeCount === 2
-        ? "보통"
-        : "강함"
-    : "";
-  const passwordStrengthColor =
-    passwordTypeCount === 0
-      ? Colors.gray500
+  const passwordStrengthLabel =
+    password.length === 0
+      ? ""
       : passwordTypeCount === 1
-        ? Colors.error
+        ? "약함"
         : passwordTypeCount === 2
-          ? Colors.warning
-          : Colors.success;
+          ? "보통"
+          : "강함";
+  const passwordStrengthColor =
+    password.length === 0
+      ? "#9CA3AF"
+      : passwordTypeCount === 1
+        ? "#EF4444"
+        : passwordTypeCount === 2
+          ? "#F59E0B"
+          : "#10B981";
+
   const canProceed =
     emailVerified &&
-    password &&
     password.length >= 8 &&
     passwordCriteriaMatched &&
-    confirm &&
+    confirm.length > 0 &&
     password === confirm &&
     acceptedTerms &&
     acceptedPrivacy &&
@@ -78,11 +78,9 @@ export default function RegisterScreen() {
     setPassword(text);
     setErrors((prev) => {
       const next = { ...prev };
-      if (confirm && text !== confirm) {
+      if (confirm.length > 0 && text !== confirm)
         next.confirm = "비밀번호가 일치하지 않습니다.";
-      } else {
-        delete next.confirm;
-      }
+      else delete next.confirm;
       return next;
     });
   };
@@ -91,11 +89,9 @@ export default function RegisterScreen() {
     setConfirm(text);
     setErrors((prev) => {
       const next = { ...prev };
-      if (text && text !== password) {
+      if (text.length > 0 && text !== password)
         next.confirm = "비밀번호가 일치하지 않습니다.";
-      } else {
-        delete next.confirm;
-      }
+      else delete next.confirm;
       return next;
     });
   };
@@ -114,11 +110,10 @@ export default function RegisterScreen() {
     if (!acceptedTerms) e.terms = "이용약관 동의가 필요합니다.";
     if (!acceptedPrivacy) e.privacy = "개인정보처리방침 동의가 필요합니다.";
     setErrors(e);
-    const termIssue = !acceptedTerms || !acceptedPrivacy || !acceptedPush;
+    const termIssue = !acceptedTerms || !acceptedPrivacy;
     setTermFocus(termIssue);
-    if (termIssue && scrollRef.current) {
+    if (termIssue && scrollRef.current)
       scrollRef.current.scrollTo({ y: termsY - 20, animated: true });
-    }
     return Object.keys(e).length === 0;
   };
 
@@ -134,6 +129,63 @@ export default function RegisterScreen() {
         emailVerificationId,
       },
     });
+  };
+
+  const handleSendCode = async () => {
+    if (!email || !/\S+@\S+\.\S+/.test(email)) {
+      setErrors((prev) => ({
+        ...prev,
+        email: "올바른 이메일을 입력해주세요.",
+      }));
+      return;
+    }
+    try {
+      const response = await axiosInstance.post(
+        "/auth/email-verification/send",
+        { email, purpose: "SIGNUP" },
+      );
+      setEmailVerificationId(response.data.data?.emailVerificationId || "");
+      setEmailAvailable(true);
+      setEmailSent(true);
+      setEmailVerified(false);
+      setErrors((prev) => ({
+        ...prev,
+        email: undefined,
+        emailCode: undefined,
+        general: undefined,
+      }));
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "인증번호 발송 실패";
+      setEmailAvailable(false);
+      setErrors((prev) => ({ ...prev, general: errMsg }));
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!enteredCode || enteredCode.length !== 6) {
+      setErrors((prev) => ({
+        ...prev,
+        emailCode: "인증번호 6자리를 입력해주세요.",
+      }));
+      return;
+    }
+    try {
+      const response = await axiosInstance.post(
+        "/auth/email-verification/verify",
+        {
+          emailVerificationId,
+          codeNumber: enteredCode,
+        },
+      );
+      setEmailVerified(true);
+      setEmailVerificationId(
+        response.data.data?.emailVerificationId || emailVerificationId,
+      );
+      setErrors((prev) => ({ ...prev, emailCode: undefined }));
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "인증 실패";
+      setErrors((prev) => ({ ...prev, emailCode: errMsg }));
+    }
   };
 
   return (
@@ -152,7 +204,7 @@ export default function RegisterScreen() {
               onPress={() => router.back()}
               style={styles.backBtn}
             >
-              <Ionicons name="arrow-back" size={24} color={Colors.white} />
+              <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>회원가입</Text>
           </View>
@@ -163,142 +215,103 @@ export default function RegisterScreen() {
               계정을 만들어 스마트한 문서 관리를 경험하세요
             </Text>
 
-            <View style={styles.form}>
-              <Input
-                label="닉네임"
-                placeholder="사용할 닉네임 입력"
-                value={nickname}
-                onChangeText={setNickname}
-                error={errors.nickname}
-              />
-              <Input
-                label="이메일"
-                placeholder="이메일 주소 입력"
-                value={email}
-                onChangeText={(text) => {
-                  setEmail(text);
-                  setEmailVerified(false);
-                  setEmailSent(false);
-                  setEmailAvailable(null);
-                  setEnteredCode("");
-                }}
-                keyboardType="email-address"
-                error={errors.email}
-              />
-
-              <View style={styles.emailMeta}>
-                {emailAvailable === false ? (
-                  <Text style={styles.unavailableText}>
-                    이미 등록된 이메일입니다.
+            {/* 그룹 1: 이메일 + 인증번호 */}
+            <View style={styles.group}>
+              <View style={styles.emailRow}>
+                <View style={styles.emailInputWrap}>
+                  <Input
+                    label="이메일"
+                    placeholder="이메일 주소 입력"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      setEmailVerified(false);
+                      setEmailSent(false);
+                      setEmailAvailable(null);
+                      setEnteredCode("");
+                    }}
+                    keyboardType="email-address"
+                    error={errors.email}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.sendBtn,
+                    emailVerified && styles.sendBtnDisabled,
+                  ]}
+                  onPress={handleSendCode}
+                  disabled={emailVerified}
+                >
+                  <Text
+                    style={[
+                      styles.sendBtnText,
+                      emailVerified && styles.sendBtnTextDisabled,
+                    ]}
+                  >
+                    {emailSent ? "재발송" : "인증번호\n받기"}
                   </Text>
-                ) : emailAvailable === true ? (
-                  <Text style={styles.availableText}>
-                    사용 가능한 이메일입니다.
-                  </Text>
-                ) : null}
+                </TouchableOpacity>
               </View>
 
-              <Button
-                label={emailSent ? "인증번호 재요청" : "이메일 인증번호 받기"}
-                onPress={async () => {
-                  if (!email || !/\S+@\S+\.\S+/.test(email)) {
-                    setErrors((prev) => ({
-                      ...prev,
-                      email: "올바른 이메일을 입력해주세요.",
-                    }));
-                    return;
-                  }
-                  try {
-                    const response = await axiosInstance.post(
-                      "/auth/email-verification/send",
-                      { email, purpose: "SIGNUP" },
-                    );
-                    setEmailVerificationId(
-                      response.data.data?.emailVerificationId || "",
-                    );
-                    setEmailAvailable(true);
-                    setEmailSent(true);
-                    setEmailVerified(false);
-                    setErrors((prev) => ({
-                      ...prev,
-                      email: undefined,
-                      emailCode: undefined,
-                      general: undefined,
-                    }));
-                  } catch (err: unknown) {
-                    const errMsg =
-                      err instanceof Error ? err.message : "인증번호 발송 실패";
-                    setEmailAvailable(false);
-                    setErrors((prev) => ({
-                      ...prev,
-                      general: errMsg,
-                    }));
-                  }
-                }}
-                variant="outline"
-                disabled={emailVerified}
-                style={styles.verifyButton}
-              />
-              {emailSent ? (
+              {emailAvailable === false && (
+                <Text style={styles.unavailableText}>
+                  이미 등록된 이메일입니다.
+                </Text>
+              )}
+              {emailAvailable === true && !emailVerified && (
+                <Text style={styles.availableText}>
+                  인증번호를 발송했습니다.
+                </Text>
+              )}
+
+              {emailSent && (
                 <>
-                  <Text style={styles.hintText}>
-                    이메일로 발송된 인증번호를 입력해주세요.
-                  </Text>
-                  <Input
-                    label="인증번호"
-                    placeholder="인증번호 6자리 입력"
-                    value={enteredCode}
-                    onChangeText={(text) => {
-                      setEnteredCode(text);
-                      setErrors((prev) => ({ ...prev, emailCode: undefined }));
-                    }}
-                    keyboardType="numeric"
-                    error={errors.emailCode}
-                  />
-                  <Button
-                    label={emailVerified ? "인증완료" : "인증번호 확인"}
-                    onPress={async () => {
-                      if (!enteredCode || enteredCode.length !== 6) {
-                        setErrors((prev) => ({
-                          ...prev,
-                          emailCode: "인증번호 6자리를 입력해주세요.",
-                        }));
-                        return;
-                      }
-                      try {
-                        const response = await axiosInstance.post(
-                          "/auth/email-verification/verify",
-                          { emailVerificationId, codeNumber: enteredCode },
-                        );
-                        setEmailVerified(true);
-                        setEmailVerificationId(
-                          response.data.data?.emailVerificationId ||
-                            emailVerificationId,
-                        );
-                        setErrors((prev) => ({
-                          ...prev,
-                          emailCode: undefined,
-                        }));
-                      } catch (err: unknown) {
-                        const errMsg =
-                          err instanceof Error ? err.message : "인증 실패";
-                        setErrors((prev) => ({
-                          ...prev,
-                          emailCode: errMsg,
-                        }));
-                      }
-                    }}
-                    disabled={emailVerified}
-                    variant={emailVerified ? "secondary" : "primary"}
-                    style={styles.verifyButton}
-                  />
+                  <View style={styles.emailRow}>
+                    <View style={styles.emailInputWrap}>
+                      <Input
+                        label="인증번호"
+                        placeholder="6자리 입력"
+                        value={enteredCode}
+                        onChangeText={(text) => {
+                          setEnteredCode(text);
+                          setErrors((prev) => ({
+                            ...prev,
+                            emailCode: undefined,
+                          }));
+                        }}
+                        keyboardType="numeric"
+                        error={errors.emailCode}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.sendBtn,
+                        emailVerified && styles.sendBtnDisabled,
+                      ]}
+                      onPress={handleVerifyCode}
+                      disabled={emailVerified}
+                    >
+                      <Text
+                        style={[
+                          styles.sendBtnText,
+                          emailVerified && styles.sendBtnTextDisabled,
+                        ]}
+                      >
+                        {emailVerified ? "인증\n완료" : "확인"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                   {emailVerified && (
                     <Text style={styles.successMessage}>
-                      인증이 완료되었습니다!
+                      ✓ 인증이 완료되었습니다!
                     </Text>
                   )}
                 </>
-              ) : null}
+              )}
+            </View>
+
+            {/* 그룹 2: 비밀번호 + 확인 */}
+            <View style={styles.group}>
               <Input
                 label="비밀번호"
                 placeholder="8자 이상 입력"
@@ -307,21 +320,17 @@ export default function RegisterScreen() {
                 isPassword
                 error={errors.password}
               />
-              <View style={styles.passwordInfoRow}>
-                <Text style={styles.passwordInfoText}>
-                  영문, 숫자, 특수문자 중 2개 이상 포함해야 합니다.
+              {password.length > 0 && (
+                <Text
+                  style={[
+                    styles.passwordStrength,
+                    { color: passwordStrengthColor },
+                  ]}
+                >
+                  강도: {passwordStrengthLabel} · 영문, 숫자, 특수문자 중 2개
+                  이상
                 </Text>
-                {password.length > 0 ? (
-                  <Text
-                    style={[
-                      styles.passwordStrength,
-                      { color: passwordStrengthColor },
-                    ]}
-                  >
-                    비밀번호 강도: {passwordStrengthLabel}
-                  </Text>
-                ) : null}
-              </View>
+              )}
               <Input
                 label="비밀번호 확인"
                 placeholder="비밀번호 재입력"
@@ -332,18 +341,30 @@ export default function RegisterScreen() {
               />
             </View>
 
+            {/* 그룹 3: 닉네임 */}
+            <View style={styles.group}>
+              <Input
+                label="닉네임"
+                placeholder="사용할 닉네임 입력"
+                value={nickname}
+                onChangeText={setNickname}
+                error={errors.nickname}
+              />
+            </View>
+
             {errors.general && (
               <Text style={styles.generalError}>{errors.general}</Text>
             )}
 
+            {/* 이용약관 */}
             <View
               style={styles.checkboxWrap}
-              onLayout={(event) => setTermsY(event.nativeEvent.layout.y)}
+              onLayout={(e) => setTermsY(e.nativeEvent.layout.y)}
             >
               <TouchableOpacity
                 style={styles.checkboxRow}
                 onPress={() => {
-                  setAcceptedTerms((prev) => !prev);
+                  setAcceptedTerms((p) => !p);
                   setTermFocus(false);
                 }}
               >
@@ -364,6 +385,7 @@ export default function RegisterScreen() {
                         : styles.checkboxRequired
                     }
                   >
+                    {" "}
                     (필수)
                   </Text>
                 </Text>
@@ -371,7 +393,7 @@ export default function RegisterScreen() {
               <TouchableOpacity
                 style={styles.checkboxRow}
                 onPress={() => {
-                  setAcceptedPrivacy((prev) => !prev);
+                  setAcceptedPrivacy((p) => !p);
                   setTermFocus(false);
                 }}
               >
@@ -394,6 +416,7 @@ export default function RegisterScreen() {
                         : styles.checkboxRequired
                     }
                   >
+                    {" "}
                     (필수)
                   </Text>
                 </Text>
@@ -401,7 +424,7 @@ export default function RegisterScreen() {
               <TouchableOpacity
                 style={styles.checkboxRow}
                 onPress={() => {
-                  setAcceptedPush((prev) => !prev);
+                  setAcceptedPush((p) => !p);
                   setTermFocus(false);
                 }}
               >
@@ -413,17 +436,17 @@ export default function RegisterScreen() {
                 >
                   {acceptedPush && <Text style={styles.checkboxMark}>✓</Text>}
                 </View>
-                <Text style={styles.checkboxLabel}>알림 푸시 수신 동의</Text>
+                <Text style={styles.checkboxLabel}>
+                  알림 푸시 수신 동의 (선택)
+                </Text>
               </TouchableOpacity>
             </View>
+
             {errors.terms && (
               <Text style={styles.smallError}>{errors.terms}</Text>
             )}
             {errors.privacy && (
               <Text style={styles.smallError}>{errors.privacy}</Text>
-            )}
-            {errors.push && (
-              <Text style={styles.smallError}>{errors.push}</Text>
             )}
 
             <Button
@@ -445,121 +468,3 @@ export default function RegisterScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.primary },
-  flex: { flex: 1 },
-  scroll: { flexGrow: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.lg,
-    gap: Spacing.md,
-  },
-  backBtn: { padding: Spacing.xs },
-  headerTitle: { fontSize: 18, fontWeight: "600", color: Colors.white },
-  card: {
-    flex: 1,
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: Spacing.xl,
-    gap: Spacing.lg,
-  },
-  title: { fontSize: 22, fontWeight: "700", color: Colors.gray900 },
-  subtitle: { fontSize: 14, color: Colors.gray500, marginTop: -Spacing.sm },
-  form: { gap: Spacing.md },
-  generalError: { fontSize: 14, color: Colors.error, textAlign: "center" },
-  terms: {
-    fontSize: 12,
-    color: Colors.gray500,
-    textAlign: "center",
-    lineHeight: 18,
-  },
-  termsLink: { color: Colors.primary, fontWeight: "600" },
-  loginRow: { flexDirection: "row", justifyContent: "center", gap: Spacing.xs },
-  loginLabel: { fontSize: 14, color: Colors.gray500 },
-  loginLink: { fontSize: 14, color: Colors.primary, fontWeight: "600" },
-  emailRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: Spacing.sm,
-  },
-  emailInputWrapper: { flex: 1 },
-  emailCheckButton: { minWidth: 120, marginTop: Spacing.lg - Spacing.xs },
-  emailMeta: {
-    minHeight: 24,
-    justifyContent: "center",
-    marginBottom: Spacing.sm,
-  },
-  emailError: {
-    fontSize: 12,
-    color: Colors.error,
-  },
-  passwordInfoRow: {
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.sm,
-    gap: Spacing.xs,
-  },
-  passwordInfoText: {
-    fontSize: 12,
-    color: Colors.gray500,
-  },
-  passwordStrength: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  checkButton: { marginTop: Spacing.sm, marginBottom: Spacing.xs },
-  verifyButton: { marginTop: Spacing.sm, marginBottom: Spacing.md },
-  checkPrompt: {
-    fontSize: 12,
-    color: Colors.gray500,
-    marginBottom: Spacing.sm,
-  },
-  hintText: { fontSize: 12, color: Colors.gray500, marginBottom: Spacing.xs },
-  hintCode: { color: Colors.primary, fontWeight: "700" },
-  availableText: {
-    fontSize: 12,
-    color: Colors.primary,
-    marginBottom: Spacing.sm,
-  },
-  unavailableText: {
-    fontSize: 12,
-    color: Colors.error,
-    marginBottom: Spacing.sm,
-  },
-  checkboxWrap: { gap: Spacing.sm, marginTop: Spacing.sm },
-  checkboxRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: Colors.gray300,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.white,
-  },
-  checkboxChecked: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  checkboxMark: { color: Colors.white, fontSize: 14, fontWeight: "700" },
-  checkboxLabel: { fontSize: 14, color: Colors.gray700 },
-  checkboxRequired: { color: Colors.gray700 },
-  checkboxRequiredError: { color: Colors.error },
-  smallError: { fontSize: 12, color: Colors.error, marginTop: -Spacing.sm },
-  successMessage: {
-    fontSize: 14,
-    color: Colors.success,
-    fontWeight: "600",
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.md,
-    textAlign: "center",
-  },
-});
