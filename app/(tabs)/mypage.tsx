@@ -1,7 +1,12 @@
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
-import { cancelAllNotifications, rescheduleAllNotifications } from '@/services/notifications';
+import {
+  cancelAllNotifications,
+  getNotificationSettings,
+  rescheduleAllNotifications,
+  updateNotificationSettings,
+} from '@/services/notifications';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { analyzePassword, validatePassword } from "@/utils/validation";
@@ -61,6 +66,7 @@ export default function MyPageScreen() {
   const router = useRouter();
   const {
     user,
+    token,
     logout,
     isBiometricEnabled,
     enableBiometric,
@@ -70,9 +76,19 @@ export default function MyPageScreen() {
     updatePassword,
   } = useAuthStore();
   const [pushEnabled, setPushEnabled] = useState(true);
+  const [emailEnabled, setEmailEnabled] = useState(true);
   const documents = useDocStore((s) => s.documents);
 
-  // 앱 푸시 알림 토글: 끄면 예약 알림 전부 취소, 켜면 문서 기준 재예약
+  useEffect(() => {
+    if (!token) return;
+    getNotificationSettings(token)
+      .then((settings) => {
+        setPushEnabled(settings.app_push_enabled);
+        setEmailEnabled(settings.email_enabled);
+      })
+      .catch((e) => console.log('알림 설정 조회 실패:', e));
+  }, [token]);
+
   const handlePushToggle = async (value: boolean) => {
     setPushEnabled(value);
     if (value) {
@@ -80,8 +96,21 @@ export default function MyPageScreen() {
     } else {
       await cancelAllNotifications();
     }
+    if (token) {
+      updateNotificationSettings({ app_push_enabled: value }, token).catch((e) =>
+        console.log('알림 설정 업데이트 실패:', e)
+      );
+    }
   };
-  const [emailEnabled, setEmailEnabled] = useState(true);
+
+  const handleEmailToggle = async (value: boolean) => {
+    setEmailEnabled(value);
+    if (token) {
+      updateNotificationSettings({ email_enabled: value }, token).catch((e) =>
+        console.log('알림 설정 업데이트 실패:', e)
+      );
+    }
+  };
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(user?.nickname ?? "");
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
@@ -295,7 +324,6 @@ export default function MyPageScreen() {
           <MenuItem icon="lock-closed-outline" label="비밀번호 변경" onPress={handleStartPasswordChange}/>
           <View style={styles.divider} />
           <MenuItem icon="keypad-outline" label="PIN 번호 재설정" onPress={() => router.push('/(auth)/pin-setup' as any)} />
-          <Text style={styles.sectionTitle}>비밀번호 설정</Text>
           <View style={styles.divider} />
           <MenuItem
             icon="finger-print-outline"
@@ -325,7 +353,7 @@ export default function MyPageScreen() {
             onPress={() => {}}
             toggle
             toggleValue={emailEnabled}
-            onToggle={setEmailEnabled}
+            onToggle={handleEmailToggle}
           />
         </View>
 

@@ -1,10 +1,11 @@
-import { Document } from '@/constants/mock-data';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import { uploadDocumentFile } from '@/services/document';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+    Alert,
     Image,
     ScrollView,
     StyleSheet,
@@ -13,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type ItemStatus = 'waiting' | 'uploading' | 'done';
+type ItemStatus = 'waiting' | 'uploading' | 'done' | 'error';
 
 export default function UploadProgressScreen() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function UploadProgressScreen() {
     manual?: string;
     docId?: string;
   }>();
-  const addDocument = useDocStore((s) => s.addDocument);
+  const { addDocument, fetchDocuments } = useDocStore();
 
   const isManual = manual === '1';
 
@@ -39,73 +40,95 @@ export default function UploadProgressScreen() {
   const startedRef = useRef(false);
   const finishedRef = useRef(false);
 
-  // 업로드 끝난 뒤 도착지로 이동 (B안: 한 장이면 상세, 여러 장이면 캐비닛)
-  const goNext = () => {
+  // 업로드 끝난 뒤 도착지로 이동
+  const goNext = (uploadedIds: string[]) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
 
     if (isManual) {
-      // 수기: 이미 만들어진 문서의 상세로
       router.replace(`/document/${docId}`);
       return;
     }
 
-    // 카메라/갤러리: 사진 수만큼 문서 생성
-    // TODO: OCR 연동 시 여기서 CLOVA API 호출로 교체
-    const today = new Date().toISOString().split('T')[0];
-    const ids: string[] = [];
-    imageUris.forEach((uri, idx) => {
-      const newId = `doc-${Date.now()}-${idx}`;
-      ids.push(newId);
-      const newDoc: Document = {
-        id: newId,
-        title: '새로운 문서',
-        category: '기타',
-        imageUri: uri,
-        uploadedAt: today,
-        tags: [],
-        isFavorite: false,
-        status: 'active',
-        extractedData: {},
-        notifications: [],
-      };
-      addDocument(newDoc);
-    });
-
-    if (ids.length === 1) {
-      router.replace(`/document/${ids[0]}`); // 한 장 → 상세
+    if (uploadedIds.length === 1) {
+      router.replace(`/document/${uploadedIds[0]}`);
     } else {
-      router.replace('/(tabs)/cabinet'); // 여러 장 → 캐비닛
+      router.replace('/(tabs)/cabinet');
     }
   };
 
-  // 사진을 하나씩 차례로 업로드(가짜)
+  // 사진을 하나씩 차례로 서버에 업로드
   useEffect(() => {
     if (startedRef.current || imageUris.length === 0) return;
     startedRef.current = true;
 
-    let i = 0;
-    const uploadNext = () => {
-      if (i >= imageUris.length) {
-        // 전부 완료 → 잠깐 보여주고 이동
-        setTimeout(goNext, 600);
+    const runUploads = async () => {
+      const uploadedIds: string[] = [];
+
+      for (let i = 0; i < imageUris.length; i++) {
+        const uri = imageUris[i];
+        setStatuses((prev) => prev.map((s, k) => (k === i ? 'uploading' : s)));
+
+        try {
+          const fileName = `upload_${Date.now()}_${i}.jpg`;
+          const item = await uploadDocumentFile(uri, fileName, 'image/jpeg');
+
+          const today = new Date().toISOString().split('T')[0];
+          addDocument({
+            id: item.documentId,
+            categoryId: item.categoryId ?? undefined,
+            title: item.title,
+            category: (item.category?.name ?? '기타') as any,
+            uploadedAt: item.createdAt?.split('T')[0] ?? today,
+            expiryDate: item.expiryDate ?? undefined,
+            imageUri: item.fileUrl,
+            tags: item.documentTags?.map((dt) => dt.tag.name) ?? [],
+            isFavorite: item.isFavorite ?? false,
+            status: 'active',
+            extractedData: {
+              notes: typeof item.ocrText === 'string' ? item.ocrText : undefined,
+            },
+            notifications: [],
+          });
+
+          uploadedIds.push(item.documentId);
+          setStatuses((prev) => prev.map((s, k) => (k === i ? 'done' : s)));
+        } catch (e) {
+          console.error(`파일 ${i + 1} 업로드 실패:`, e);
+          setStatuses((prev) => prev.map((s, k) => (k === i ? 'error' : s)));
+        }
+      }
+
+      const hasAnySuccess = uploadedIds.length > 0;
+      const hasAnyError = statuses.some((s) => s === 'error');
+
+      if (!hasAnySuccess) {
+        Alert.alert('업로드 실패', '파일 업로드에 실패했습니다. 다시 시도해주세요.', [
+          { text: '확인', onPress: () => router.back() },
+        ]);
         return;
       }
-      const idx = i;
-      setStatuses((prev) => prev.map((s, k) => (k === idx ? 'uploading' : s)));
-      setTimeout(() => {
-        setStatuses((prev) => prev.map((s, k) => (k === idx ? 'done' : s)));
-        i += 1;
-        uploadNext();
-      }, 700);
+
+      if (hasAnyError) {
+        Alert.alert(
+          '일부 업로드 실패',
+          `${uploadedIds.length}/${imageUris.length}개 파일이 업로드되었습니다.`,
+          [{ text: '확인', onPress: () => setTimeout(() => goNext(uploadedIds), 300) }]
+        );
+        return;
+      }
+
+      setTimeout(() => goNext(uploadedIds), 600);
     };
-    uploadNext();
+
+    runUploads();
   }, [imageUris.length]);
 
   const doneCount = statuses.filter((s) => s === 'done').length;
+  const errorCount = statuses.filter((s) => s === 'error').length;
   const total = imageUris.length || 1;
-  const percent = Math.round((doneCount / total) * 100);
-  const allDone = doneCount === imageUris.length && imageUris.length > 0;
+  const percent = Math.round(((doneCount + errorCount) / total) * 100);
+  const allDone = doneCount + errorCount === imageUris.length && imageUris.length > 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -119,13 +142,15 @@ export default function UploadProgressScreen() {
 
       {/* 원형 진행률 */}
       <View style={styles.progressTop}>
-        <View style={[styles.circle, allDone && styles.circleDone]}>
-          <Text style={[styles.circlePercent, allDone && { color: Colors.success }]}>
+        <View style={[styles.circle, allDone && (errorCount === 0 ? styles.circleDone : styles.circleError)]}>
+          <Text style={[styles.circlePercent, allDone && (errorCount === 0 ? { color: Colors.success } : { color: Colors.error })]}>
             {percent}%
           </Text>
         </View>
         <Text style={styles.progressLabel}>
-          {allDone ? '업로드 완료!' : '스토리지에 파일을 업로드하고 있어요'}
+          {allDone
+            ? errorCount === 0 ? '업로드 완료!' : `${errorCount}개 실패`
+            : '스토리지에 파일을 업로드하고 있어요'}
         </Text>
       </View>
 
@@ -147,6 +172,8 @@ export default function UploadProgressScreen() {
             <View style={styles.itemStatus}>
               {statuses[idx] === 'done' ? (
                 <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
+              ) : statuses[idx] === 'error' ? (
+                <Ionicons name="close-circle" size={24} color={Colors.error} />
               ) : statuses[idx] === 'uploading' ? (
                 <Text style={styles.uploadingText}>업로드중...</Text>
               ) : (
@@ -182,6 +209,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   circleDone: { borderColor: Colors.success },
+  circleError: { borderColor: Colors.error },
   circlePercent: { fontSize: 26, fontWeight: '700', color: Colors.primary },
   progressLabel: { fontSize: 14, color: Colors.gray500 },
 

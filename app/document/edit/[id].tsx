@@ -1,6 +1,8 @@
 import { DocumentCategory } from '@/constants/mock-data';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { cancelNotification, scheduleExpiryNotification } from '@/services/notifications';
+import { updateDocument as apiUpdateDocument } from '@/services/document';
+import { cancelNotification, createDocumentAlert, scheduleExpiryNotification } from '@/services/notifications';
+import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -59,7 +61,8 @@ function formatDateInput(text: string): string {
 export default function DocumentEditScreen() {
   const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
   const router = useRouter();
-  const { documents, updateDocument, removeDocument } = useDocStore();
+  const { documents, categories, updateDocument, removeDocument } = useDocStore();
+  const token = useAuthStore((s) => s.token);
   const doc = documents.find((d) => d.id === id);
 
   const isManual = manual === '1'; // 수기 등록으로 들어온 경우
@@ -162,6 +165,7 @@ export default function DocumentEditScreen() {
       notifications = [];
     }
 
+    // 로컬 상태 업데이트
     updateDocument(doc.id, {
       title: title.trim(),
       category,
@@ -170,6 +174,42 @@ export default function DocumentEditScreen() {
       notifications,
       imageUri,
     });
+
+    // 서버 동기화 (로컬 임시 문서가 아닌 경우)
+    if (!doc.id.startsWith('doc-')) {
+      try {
+        const matchedCat = categories.find((c) => c.name === category);
+        await apiUpdateDocument(doc.id, {
+          title: title.trim(),
+          expiryDate: expiryDate.trim() || undefined,
+          ocrText: notes.trim() || undefined,
+          ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
+        });
+      } catch (e) {
+        console.error('문서 수정 API 실패:', e);
+      }
+
+      // 서버 알림 생성 (만료일 + 알림 시점이 모두 설정된 경우)
+      if (expiryDate.trim() && notiDays !== null && token) {
+        try {
+          const option = NOTI_OPTIONS.find((o) => o.days === notiDays);
+          const notiDate = subtractDays(expiryDate.trim(), notiDays);
+          await createDocumentAlert(
+            doc.id,
+            {
+              notify_date: notiDate,
+              reason: option ? `${option.label} 알림` : '만료 알림',
+              channel_app_push: true,
+              channel_email: false,
+              channel_web_push: false,
+            },
+            token
+          );
+        } catch (e) {
+          console.log('서버 알림 등록 실패:', e);
+        }
+      }
+    }
 
     // 수기 등록이고 사진이 있으면 업로드 진행 화면을 거쳐 상세로
     if (isManual && imageUri) {

@@ -1,11 +1,17 @@
 import { Badge } from '@/components/common/badge';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { downloadPdf } from '@/services/download';
-import { cancelNotification } from '@/services/notifications';
+import {
+  DocumentAlert,
+  cancelNotification,
+  deleteAlert,
+  getDocumentAlerts,
+} from '@/services/notifications';
+import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +19,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -25,10 +30,19 @@ export default function DocumentDetailScreen() {
   const router = useRouter();
   const [downloading, setDownloading] = useState(false);
   const { documents, toggleFavorite, removeDocument, updateDocument } = useDocStore();
+  const token = useAuthStore((s) => s.token);
   const doc = documents.find((d) => d.id === id);
 
   const [expandedInfo, setExpandedInfo] = useState(true);
   const [expandedNotif, setExpandedNotif] = useState(true);
+  const [serverAlerts, setServerAlerts] = useState<DocumentAlert[]>([]);
+
+  useEffect(() => {
+    if (!doc || !token) return;
+    getDocumentAlerts(doc.id, token)
+      .then(setServerAlerts)
+      .catch((e) => console.log('문서 알림 조회 실패:', e));
+  }, [doc?.id, token]);
 
   if (!doc) {
     return (
@@ -61,11 +75,14 @@ export default function DocumentDetailScreen() {
     ]);
   };
 
-  const toggleNotification = (notifId: string) => {
-    const updated = doc.notifications.map((n) =>
-      n.id === notifId ? { ...n, enabled: !n.enabled } : n
-    );
-    updateDocument(doc.id, { notifications: updated });
+  const handleDeleteAlert = async (alertId: string) => {
+    if (!token) return;
+    setServerAlerts((prev) => prev.filter((a) => a.alert_id !== alertId));
+    try {
+      await deleteAlert(alertId, token);
+    } catch (e) {
+      console.log('알림 삭제 실패:', e);
+    }
   };
 
   const categoryIcons: Record<string, string> = {
@@ -106,10 +123,13 @@ export default function DocumentDetailScreen() {
           <TouchableOpacity
             disabled={downloading}
             onPress={async () => {
+              if (!doc.imageUri) {
+                Alert.alert('다운로드 불가', '저장된 파일 URL이 없습니다.');
+                return;
+              }
               setDownloading(true);
               try {
-                const testUrl = 'https://pdfobject.com/pdf/sample.pdf';
-                const ok = await downloadPdf(testUrl, `${doc.title}.pdf`);
+                const ok = await downloadPdf(doc.imageUri, `${doc.title}.pdf`);
                 Alert.alert(ok ? '저장 완료' : '저장 취소', ok ? 'PDF가 저장되었습니다.' : '');
               } catch (e) {
                 Alert.alert('다운로드 실패', '파일을 받지 못했습니다.');
@@ -220,20 +240,21 @@ export default function DocumentDetailScreen() {
           </TouchableOpacity>
           {expandedNotif && (
             <View style={styles.notifList}>
-              {doc.notifications.length === 0 ? (
+              {serverAlerts.length === 0 ? (
                 <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>
               ) : (
-                doc.notifications.map((notif) => (
-                  <View key={notif.id} style={styles.notifItem}>
+                serverAlerts.map((alert) => (
+                  <View key={alert.alert_id} style={styles.notifItem}>
                     <View style={styles.notifInfo}>
-                      <Text style={styles.notifLabel}>{notif.label}</Text>
-                      <Text style={styles.notifDate}>{notif.date}</Text>
+                      <Text style={styles.notifLabel}>{alert.reason}</Text>
+                      <Text style={styles.notifDate}>{alert.notify_date}</Text>
                     </View>
-                    <Switch
-                      value={notif.enabled}
-                      onValueChange={() => toggleNotification(notif.id)}
-                      trackColor={{ false: Colors.gray200, true: Colors.primary }}
-                    />
+                    <TouchableOpacity
+                      onPress={() => handleDeleteAlert(alert.alert_id)}
+                      style={styles.notifDeleteBtn}
+                      hitSlop={8}>
+                      <Ionicons name="trash-outline" size={18} color={Colors.error} />
+                    </TouchableOpacity>
                   </View>
                 ))
               )}
@@ -336,6 +357,7 @@ const styles = StyleSheet.create({
   notifLabel: { fontSize: 14, color: Colors.gray800, fontWeight: '500' },
   notifDate: { fontSize: 12, color: Colors.gray400 },
   notifEmpty: { fontSize: 14, color: Colors.gray400 },
+  notifDeleteBtn: { padding: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
   tag: { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: Spacing.sm, paddingVertical: 4 },
   tagText: { fontSize: 13, color: Colors.primary, fontWeight: '500' },

@@ -1,3 +1,5 @@
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
@@ -5,7 +7,7 @@ import { Platform } from 'react-native';
 export function setupNotificationHandler() {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowBanner: true,
+      shouldShowBanner: false,   // 커스텀 인앱 배너(NotificationBanner)로 대체
       shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
@@ -93,6 +95,38 @@ export async function sendTestNotification() {
   });
 }
 
+// Expo Push Token 발급
+export async function getExpoPushToken() {
+  if (!Device.isDevice) {
+    console.log('푸시 토큰은 실제 기기에서만 발급됩니다.');
+    return null;
+  }
+
+  const permissionGranted = await registerNotifications();
+
+  if (!permissionGranted) {
+    console.log('알림 권한이 허용되지 않았습니다.');
+    return null;
+  }
+
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ??
+    Constants.easConfig?.projectId;
+
+  if (!projectId) {
+    console.log('Expo projectId를 찾을 수 없습니다.');
+    return null;
+  }
+
+  const tokenData = await Notifications.getExpoPushTokenAsync({
+    projectId,
+  });
+
+  console.log('Expo Push Token:', tokenData.data);
+
+  return tokenData.data;
+}
+
 // 10초 뒤 알림 (테스트용 - 앱을 닫아도 뜨는지 확인할 때)
 export async function sendTestNotificationIn10s() {
   await Notifications.scheduleNotificationAsync({
@@ -107,3 +141,201 @@ export async function sendTestNotificationIn10s() {
     },
   });
 }
+
+// ===============================
+// 문서 알림(Alert) API
+// ===============================
+
+export type DocumentAlert = {
+  alert_id: string;
+  document_id: string;
+  offset_type: string | null;
+  notify_date: string;
+  reason: string;
+  channel_email: boolean;
+  channel_app_push: boolean;
+  channel_web_push: boolean;
+  is_sent: boolean;
+  created_at: string;
+};
+
+export type CreateAlertBody = {
+  notify_date: string;
+  reason: string;
+  offset_type?: string;
+  channel_email?: boolean;
+  channel_app_push?: boolean;
+  channel_web_push?: boolean;
+};
+
+export type UpdateAlertBody = Partial<CreateAlertBody>;
+
+export type NotificationSettings = {
+  email_enabled: boolean;
+  app_push_enabled: boolean;
+  web_push_enabled: boolean;
+};
+
+// ===============================
+// 서버 알림 API 연결
+// ===============================
+
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+
+export type NotificationStatus = "all" | "unread" | "read";
+
+export type ServerNotification = {
+  alert_id: string;
+  document_id: string;
+  title: string;
+  body: string;
+  notify_date: string;
+  channel_email: boolean;
+  channel_app_push: boolean;
+  channel_web_push: boolean;
+  is_sent: boolean;
+  is_read: boolean;
+  created_at: string;
+};
+
+export type GetNotificationsResponse = {
+  page: number;
+  per_page: number;
+  total: number;
+  notifications: ServerNotification[];
+};
+
+async function request<T>(
+  path: string,
+  options: RequestInit & { token: string }
+): Promise<T> {
+  if (!BASE_URL) {
+    throw new Error("EXPO_PUBLIC_API_URL이 설정되어 있지 않습니다.");
+  }
+
+  const { token, headers, ...restOptions } = options;
+
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...restOptions,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API 요청 실패: ${response.status} ${errorText}`);
+  }
+
+  return response.json();
+}
+
+// 알림 목록 조회
+export async function getServerNotifications(params: {
+  status?: NotificationStatus;
+  page?: number;
+  per_page?: number;
+  token: string;
+}) {
+  const { status = "all", page = 1, per_page = 20, token } = params;
+
+  const query = new URLSearchParams({
+    status,
+    page: String(page),
+    per_page: String(per_page),
+  });
+
+  return request<GetNotificationsResponse>(
+    `/notifications?${query.toString()}`,
+    {
+      method: "GET",
+      token,
+    }
+  );
+}
+
+// 알림 읽음 처리
+export async function markServerNotificationRead(
+  alertId: string,
+  token: string
+) {
+  return request<{ success: boolean }>(`/notifications/${alertId}/read`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({
+      read: true,
+    }),
+  });
+}
+
+// 전체 알림 읽음 처리
+export async function markAllServerNotificationsRead(token: string) {
+  return request<{ success: boolean }>("/notifications/read-all", {
+    method: "PATCH",
+    token,
+  });
+}
+
+// GET /documents/:documentId/alerts
+export async function getDocumentAlerts(documentId: string, token: string) {
+  const res = await request<{ alerts: DocumentAlert[] }>(
+    `/documents/${documentId}/alerts`,
+    { method: "GET", token }
+  );
+  return res.alerts;
+}
+
+// POST /documents/:documentId/alerts
+export async function createDocumentAlert(
+  documentId: string,
+  body: CreateAlertBody,
+  token: string
+) {
+  return request<DocumentAlert>(`/documents/${documentId}/alerts`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(body),
+  });
+}
+
+// PUT /alerts/:alertId
+export async function updateAlert(
+  alertId: string,
+  body: UpdateAlertBody,
+  token: string
+) {
+  return request<{ success: boolean; alert_id: string }>(
+    `/alerts/${alertId}`,
+    { method: "PUT", token, body: JSON.stringify(body) }
+  );
+}
+
+// DELETE /alerts/:alertId
+export async function deleteAlert(alertId: string, token: string) {
+  return request<{ success: boolean; message: string }>(
+    `/alerts/${alertId}`,
+    { method: "DELETE", token }
+  );
+}
+
+// GET /settings/notifications
+export async function getNotificationSettings(token: string) {
+  return request<NotificationSettings>("/settings/notifications", {
+    method: "GET",
+    token,
+  });
+}
+
+// PATCH /settings/notifications
+export async function updateNotificationSettings(
+  body: Partial<NotificationSettings>,
+  token: string
+) {
+  return request<{ success: boolean; settings: NotificationSettings }>(
+    "/settings/notifications",
+    { method: "PATCH", token, body: JSON.stringify(body) }
+  );
+}
+
