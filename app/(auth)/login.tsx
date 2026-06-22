@@ -4,7 +4,6 @@ import { Colors, Radius, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter } from "expo-router";
@@ -40,18 +39,18 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const res = await axiosInstance.post("/auth/login", { email, password });
-
-      // 서버 응답에서 토큰 꺼내서 저장
-      const token = res.data.token; // ← 서버 응답 구조 확인 후 수정
-      await AsyncStorage.setItem("token", token);
-
+      await axiosInstance.post("/auth/login", { email, password });
       router.replace("/(tabs)");
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         const serverError = err.response?.data;
-        console.log("서버가 보낸 실제 에러:", serverError);
-        setError(serverError.error);
+        if (serverError?.errorCode === "USER_NOT_FOUND") {
+          setError("존재하지 않는 이메일입니다.");
+        } else if (serverError?.errorCode === "INVALID_PASSWORD") {
+          setError("비밀번호가 올바르지 않습니다.");
+        } else {
+          setError("로그인에 실패했습니다.");
+        }
       }
     } finally {
       setLoading(false);
