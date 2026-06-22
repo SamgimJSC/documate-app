@@ -1,10 +1,9 @@
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { sendTestNotification, sendTestNotificationIn10s } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface NotifItem {
@@ -14,6 +13,7 @@ interface NotifItem {
   body: string;
   time: string;
   read: boolean;
+  docId?: string;
 }
 
 const today = new Date().toISOString().split('T')[0];
@@ -37,6 +37,7 @@ export default function NotificationScreen() {
         body: `"${doc.title}"이(가) ${days !== null && days <= 0 ? '이미 만료되었습니다.' : `${days}일 후 만료됩니다.`}`,
         time: '방금 전',
         read: i > 0,
+        docId: doc.id,
       });
     });
     notifs.push({
@@ -64,6 +65,14 @@ export default function NotificationScreen() {
     setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
+  // 알림 누르면: 읽음 처리 후, 연결된 문서가 있으면 그 문서로 이동
+  const handleNotifPress = (notif: NotifItem) => {
+    setNotifs((prev) => prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n)));
+    if (notif.docId) {
+      router.push(`/document/${notif.docId}`);
+    }
+  };
+
   const unreadCount = notifs.filter((n) => !n.read).length;
 
   const getNotifIcon = (type: NotifItem['type']) => {
@@ -86,26 +95,6 @@ export default function NotificationScreen() {
         )}
       </View>
 
-      {/* TODO: 🔧 테스트용 버튼 (확인 끝나면 이 블록 삭제) */}
-      <View style={styles.testRow}>
-        <TouchableOpacity
-          style={styles.testBtn}
-          onPress={async () => {
-            await sendTestNotification();
-            Alert.alert('전송됨', '즉시 알림을 보냈어요. 화면 상단을 확인하세요.');
-          }}>
-          <Text style={styles.testBtnText}>즉시 알림</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.testBtn}
-          onPress={async () => {
-            await sendTestNotificationIn10s();
-            Alert.alert('예약됨', '10초 뒤에 알림이 떠요. 앱을 닫고 기다려보세요!');
-          }}>
-          <Text style={styles.testBtnText}>10초 뒤 알림</Text>
-        </TouchableOpacity>
-      </View>
-
       {unreadCount > 0 && (
         <View style={styles.unreadBanner}>
           <Ionicons name="notifications" size={16} color={Colors.primary} />
@@ -117,7 +106,8 @@ export default function NotificationScreen() {
         {notifs.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>🔔</Text>
-            <Text style={styles.emptyText}>알림이 없습니다</Text>
+            <Text style={styles.emptyText}>설정된 알림이 없습니다</Text>
+            <Text style={styles.emptyHint}>문서 수정에서 만료 알림을 설정해보세요</Text>
           </View>
         ) : (
           notifs.map((notif) => {
@@ -126,7 +116,7 @@ export default function NotificationScreen() {
               <TouchableOpacity
                 key={notif.id}
                 style={[styles.notifCard, !notif.read && styles.notifCardUnread]}
-                onPress={() => setNotifs((prev) => prev.map((n) => n.id === notif.id ? { ...n, read: true } : n))}>
+                onPress={() => handleNotifPress(notif)}>
                 <View style={[styles.notifIconWrap, { backgroundColor: icon.bg }]}>
                   <Ionicons name={icon.name} size={20} color={icon.color} />
                 </View>
@@ -135,6 +125,9 @@ export default function NotificationScreen() {
                   <Text style={styles.notifBody}>{notif.body}</Text>
                   <Text style={styles.notifTime}>{notif.time}</Text>
                 </View>
+                {notif.docId && (
+                  <Ionicons name="chevron-forward" size={16} color={Colors.gray300} />
+                )}
                 {!notif.read && <View style={styles.unreadDot} />}
               </TouchableOpacity>
             );
@@ -193,15 +186,5 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', padding: Spacing.xxl, gap: Spacing.md },
   emptyIcon: { fontSize: 48 },
   emptyText: { fontSize: 16, color: Colors.gray400 },
-  testRow: { flexDirection: 'row', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
-  testBtn: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primaryLight,
-  },
-  testBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  emptyHint: { fontSize: 13, color: Colors.gray400, textAlign: 'center' },
 });

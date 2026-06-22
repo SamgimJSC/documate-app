@@ -61,7 +61,31 @@ export async function cancelNotification(id: string) {
   }
 }
 
-// TODO: 작동 확인 후 제거. 즉시 알림 (테스트용)
+// 예약된 모든 알림 취소 (알림 토글 OFF 시 사용)
+export async function cancelAllNotifications() {
+  await Notifications.cancelAllScheduledNotificationsAsync();
+}
+
+// 문서 목록을 받아 enabled된 알림을 모두 다시 예약 (알림 토글 ON 시 사용)
+// docs: { id, title, notifications: [{ date, label, enabled }] } 형태
+export async function rescheduleAllNotifications(
+  docs: { id: string; title: string; notifications: { date: string; label: string; enabled: boolean }[] }[]
+) {
+  // 중복 방지를 위해 기존 예약 전부 비우고 다시 예약
+  await Notifications.cancelAllScheduledNotificationsAsync();
+  for (const doc of docs) {
+    for (const n of doc.notifications) {
+      if (!n.enabled) continue;
+      await scheduleExpiryNotification(
+        n.date,
+        n.label || '문서 만료 알림',
+        `"${doc.title}" 문서가 곧 만료됩니다.`
+      );
+    }
+  }
+}
+
+// 즉시 알림 (테스트용)
 export async function sendTestNotification() {
   await Notifications.scheduleNotificationAsync({
     content: { title: '테스트 알림 🔔', body: '알림이 정상 작동합니다!', sound: true },
@@ -69,7 +93,7 @@ export async function sendTestNotification() {
   });
 }
 
-// TODO: 작동 확인 후 제거. 10초 뒤 알림 (테스트용 - 앱을 닫아도 뜨는지 확인할 때)
+// 10초 뒤 알림 (테스트용 - 앱을 닫아도 뜨는지 확인할 때)
 export async function sendTestNotificationIn10s() {
   await Notifications.scheduleNotificationAsync({
     content: {
