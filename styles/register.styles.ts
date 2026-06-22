@@ -16,7 +16,7 @@ export const styles = StyleSheet.create({
   // register.styles.ts
   emailRow: {
     flexDirection: "row",
-    alignItems: "center", // flex-end → center
+    alignItems: "flex-start", // flex-end → center
     gap: Spacing.sm,
   },
 
@@ -35,31 +35,35 @@ export const styles = StyleSheet.create({
   group: {
     gap: Spacing.xs,
   },
-  emailRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: Spacing.sm,
-  },
+
   emailInputWrap: { flex: 1 },
   sendBtn: {
     width: 60,
     height: 48,
     borderRadius: 8,
     borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderColor: Colors.gray300, // 비활성 기본값
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 2,
+    marginTop: 22, // 라벨 높이만큼 밀어주기
+  },
+  sendBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   sendBtnDisabled: {
     borderColor: Colors.gray300,
+    backgroundColor: Colors.gray100,
   },
   sendBtnText: {
     fontSize: 12,
     fontWeight: "600",
-    color: Colors.primary,
+    color: Colors.gray400, // 기본 비활성 글씨
     textAlign: "center",
     lineHeight: 16,
+  },
+  sendBtnTextActive: {
+    color: Colors.white, // 활성화 글씨 흰색
   },
   sendBtnTextDisabled: {
     color: Colors.gray400,

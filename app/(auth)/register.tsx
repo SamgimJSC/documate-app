@@ -26,6 +26,7 @@ export default function RegisterScreen() {
   const [confirm, setConfirm] = useState("");
   const [enteredCode, setEnteredCode] = useState("");
   const [emailSent, setEmailSent] = useState(false);
+  const isEmailValid = /\S+@\S+\.\S+/.test(email);
   const [emailVerified, setEmailVerified] = useState(false);
   const [emailAvailable, setEmailAvailable] = useState<boolean | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -145,7 +146,7 @@ export default function RegisterScreen() {
         "/auth/email-verification/send",
         { email, purpose: "SIGNUP" },
       );
-      setEmailVerificationId(response.data.data?.emailVerificationId || "");
+      setEmailVerificationId(response.data?.emailVerificationId || "");
       setEmailAvailable(true);
       setEmailSent(true);
       setEmailVerified(false);
@@ -180,7 +181,7 @@ export default function RegisterScreen() {
       );
       setEmailVerified(true);
       setEmailVerificationId(
-        response.data.data?.emailVerificationId || emailVerificationId,
+        response.data?.emailVerificationId || emailVerificationId,
       );
       setErrors((prev) => ({ ...prev, emailCode: undefined }));
     } catch (err: unknown) {
@@ -238,6 +239,7 @@ export default function RegisterScreen() {
                 <TouchableOpacity
                   style={[
                     styles.sendBtn,
+                    isEmailValid && !emailVerified && styles.sendBtnActive,
                     emailVerified && styles.sendBtnDisabled,
                   ]}
                   onPress={handleSendCode}
@@ -246,6 +248,9 @@ export default function RegisterScreen() {
                   <Text
                     style={[
                       styles.sendBtnText,
+                      isEmailValid &&
+                        !emailVerified &&
+                        styles.sendBtnTextActive,
                       emailVerified && styles.sendBtnTextDisabled,
                     ]}
                   >
@@ -287,6 +292,9 @@ export default function RegisterScreen() {
                     <TouchableOpacity
                       style={[
                         styles.sendBtn,
+                        enteredCode.length === 6 &&
+                          !emailVerified &&
+                          styles.sendBtnActive,
                         emailVerified && styles.sendBtnDisabled,
                       ]}
                       onPress={handleVerifyCode}
@@ -295,6 +303,9 @@ export default function RegisterScreen() {
                       <Text
                         style={[
                           styles.sendBtnText,
+                          enteredCode.length === 6 &&
+                            !emailVerified &&
+                            styles.sendBtnTextActive,
                           emailVerified && styles.sendBtnTextDisabled,
                         ]}
                       >

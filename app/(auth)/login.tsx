@@ -40,6 +40,21 @@ export default function LoginScreen() {
 
     try {
       await axiosInstance.post("/auth/login", { email, password });
+
+      useAuthStore.setState({
+        isAuthenticated: true,
+        isPinVerified: true,
+        user: {
+          id: "",
+          email,
+          nickname: "",
+          plan: "free",
+          storageUsed: 0,
+          storageLimit: 5,
+        },
+        token: "logged-in",
+      });
+
       router.replace("/(tabs)");
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {

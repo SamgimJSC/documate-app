@@ -9,6 +9,7 @@ const axiosInstance = axios.create({
   // 이전 단계에서 설정한 Expo 환경변수를 baseURL로 지정합니다.
   baseURL: process.env.EXPO_PUBLIC_API_URL,
   timeout: 10000, // 10초 동안 응답이 없으면 타임아웃
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
@@ -41,6 +42,7 @@ axiosInstance.interceptors.response.use(
     return response.data;
   },
   async (error) => {
+    console.log(JSON.stringify(error?.response?.data, null, 2));
     // 2xx 외의 상태 코드는 이 함수를 트리거합니다.
     if (error.response) {
       const status = error.response.status;
