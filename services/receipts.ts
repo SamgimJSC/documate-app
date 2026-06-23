@@ -33,6 +33,7 @@ function toReceipt(r: ApiReceiptItem): Receipt {
   };
 }
 
+// TODO [배포 전]: document.ts와 동일하게 인증 방식 통일 (쿠키 vs Bearer 토큰)
 async function receiptRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!BASE_URL) throw new Error('EXPO_PUBLIC_API_URL이 설정되어 있지 않습니다.');
 

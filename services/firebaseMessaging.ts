@@ -210,6 +210,7 @@ export async function getInitialNotificationData(): Promise<Record<string, strin
 //
 // 서버에 등록된 토큰으로 푸시 알림을 발송합니다.
 // Section 1(Expo Push Token)과 Section 2(FCM Token) 모두 이 함수로 서버에 등록합니다.
+// TODO [배포 전]: 인증 방식 확정 후 credentials 방식 통일 (document.ts 참고)
 export async function registerFcmTokenToServer(fcmToken: string) {
   if (!BASE_URL) {
     console.log("EXPO_PUBLIC_API_URL이 설정되어 있지 않아 서버 등록을 생략합니다.");

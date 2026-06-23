@@ -116,6 +116,11 @@ export type UpdateDocumentBody = {
   aiStatus?: DocumentAiStatus;
 };
 
+// TODO [배포 전]: 인증 방식 확정 후 아래 두 가지 중 하나로 교체
+//   A) 쿠키 방식 유지 시 → react-native-cookies 라이브러리 설치 후 쿠키 수동 관리
+//      (React Native의 fetch는 브라우저와 달리 Set-Cookie를 자동 저장하지 않음)
+//   B) JWT Bearer 토큰 방식으로 변경 시 → credentials 제거 후
+//      headers에 Authorization: `Bearer ${token}` 추가 (auth-store에서 token 읽어옴)
 async function documentRequest<T>(
   path: string,
   options: RequestInit = {}
@@ -314,6 +319,7 @@ export async function uploadDocumentFile(
     type: mimeType,
   } as any);
 
+  // TODO [배포 전]: 인증 방식 확정 후 위의 documentRequest와 동일하게 맞출 것
   const response = await fetch(`${BASE_URL}/documents/upload`, {
     method: "POST",
     credentials: "include",

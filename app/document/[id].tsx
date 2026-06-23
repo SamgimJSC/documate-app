@@ -7,7 +7,6 @@ import {
   deleteAlert,
   getDocumentAlerts,
 } from '@/services/notifications';
-import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -29,8 +28,7 @@ export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [downloading, setDownloading] = useState(false);
-  const { documents, toggleFavorite, removeDocument, updateDocument } = useDocStore();
-  const token = useAuthStore((s) => s.token);
+  const { documents, toggleFavorite, removeDocument } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
   const [expandedInfo, setExpandedInfo] = useState(true);
@@ -38,11 +36,11 @@ export default function DocumentDetailScreen() {
   const [serverAlerts, setServerAlerts] = useState<DocumentAlert[]>([]);
 
   useEffect(() => {
-    if (!doc || !token) return;
-    getDocumentAlerts(doc.id, token)
+    if (!doc) return;
+    getDocumentAlerts(doc.id)
       .then(setServerAlerts)
       .catch((e) => console.log('문서 알림 조회 실패:', e));
-  }, [doc?.id, token]);
+  }, [doc?.id]);
 
   if (!doc) {
     return (
@@ -76,10 +74,9 @@ export default function DocumentDetailScreen() {
   };
 
   const handleDeleteAlert = async (alertId: string) => {
-    if (!token) return;
     setServerAlerts((prev) => prev.filter((a) => a.alert_id !== alertId));
     try {
-      await deleteAlert(alertId, token);
+      await deleteAlert(alertId);
     } catch (e) {
       console.log('알림 삭제 실패:', e);
     }

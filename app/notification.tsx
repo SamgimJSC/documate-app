@@ -8,7 +8,6 @@ import {
   sendTestNotificationIn10s,
   ServerNotification,
 } from '@/services/notifications';
-import { useAuthStore } from '@/stores/auth-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -38,32 +37,32 @@ function formatDate(dateStr: string) {
 
 export default function NotificationScreen() {
   const router = useRouter();
-  const token = useAuthStore((s) => s.token);
 
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [status, setStatus] = useState<NotificationStatus>('all');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
-    if (!token) return;
     try {
       setLoading(true);
-      const data = await getServerNotifications({ status, page: 1, per_page: 20, token });
+      setError(null);
+      const data = await getServerNotifications({ status, page: 1, per_page: 20 });
       setNotifications(data.notifications);
     } catch (e) {
       console.log('알림 목록 조회 실패:', e);
+      setError('알림을 불러오지 못했습니다. 서버 연결을 확인해주세요.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, [status, token]);
+  useEffect(() => { load(); }, [status]);
 
   const handlePress = async (item: ServerNotification) => {
-    if (!token) return;
     try {
       if (!item.is_read) {
-        await markServerNotificationRead(item.alert_id, token);
+        await markServerNotificationRead(item.alert_id);
         setNotifications((prev) =>
           prev.map((n) => (n.alert_id === item.alert_id ? { ...n, is_read: true } : n))
         );
@@ -77,9 +76,8 @@ export default function NotificationScreen() {
   };
 
   const handleReadAll = async () => {
-    if (!token) return;
     try {
-      await markAllServerNotificationsRead(token);
+      await markAllServerNotificationsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     } catch (e) {
       console.log('전체 읽음 처리 실패:', e);
@@ -135,7 +133,7 @@ export default function NotificationScreen() {
             </TouchableOpacity>
           </View>
           <Text style={styles.devHint}>
-            "10초 후 알림" 누른 뒤 홈 버튼으로 앱을 닫으면 백그라운드 알림을 테스트할 수 있어요
+            &quot;10초 후 알림&quot; 누른 뒤 홈 버튼으로 앱을 닫으면 백그라운드 알림을 테스트할 수 있어요
           </Text>
         </View>
       )}
@@ -143,6 +141,11 @@ export default function NotificationScreen() {
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      ) : error ? (
+        <View style={styles.center}>
+          <Ionicons name="cloud-offline-outline" size={48} color={Colors.gray300} />
+          <Text style={styles.emptyText}>{error}</Text>
         </View>
       ) : (
         <FlatList

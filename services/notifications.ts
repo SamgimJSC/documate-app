@@ -205,22 +205,21 @@ export type GetNotificationsResponse = {
   notifications: ServerNotification[];
 };
 
+// TODO [배포 전]: document.ts와 동일하게 인증 방식 통일 (쿠키 vs Bearer 토큰)
 async function request<T>(
   path: string,
-  options: RequestInit & { token: string }
+  options: RequestInit = {}
 ): Promise<T> {
   if (!BASE_URL) {
     throw new Error("EXPO_PUBLIC_API_URL이 설정되어 있지 않습니다.");
   }
 
-  const { token, headers, ...restOptions } = options;
-
   const response = await fetch(`${BASE_URL}${path}`, {
-    ...restOptions,
+    ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...headers,
+      ...options.headers,
     },
   });
 
@@ -237,9 +236,8 @@ export async function getServerNotifications(params: {
   status?: NotificationStatus;
   page?: number;
   per_page?: number;
-  token: string;
 }) {
-  const { status = "all", page = 1, per_page = 20, token } = params;
+  const { status = "all", page = 1, per_page = 20 } = params;
 
   const query = new URLSearchParams({
     status,
@@ -249,40 +247,30 @@ export async function getServerNotifications(params: {
 
   return request<GetNotificationsResponse>(
     `/notifications?${query.toString()}`,
-    {
-      method: "GET",
-      token,
-    }
+    { method: "GET" }
   );
 }
 
 // 알림 읽음 처리
-export async function markServerNotificationRead(
-  alertId: string,
-  token: string
-) {
+export async function markServerNotificationRead(alertId: string) {
   return request<{ success: boolean }>(`/notifications/${alertId}/read`, {
     method: "PATCH",
-    token,
-    body: JSON.stringify({
-      read: true,
-    }),
+    body: JSON.stringify({ read: true }),
   });
 }
 
 // 전체 알림 읽음 처리
-export async function markAllServerNotificationsRead(token: string) {
+export async function markAllServerNotificationsRead() {
   return request<{ success: boolean }>("/notifications/read-all", {
     method: "PATCH",
-    token,
   });
 }
 
 // GET /documents/:documentId/alerts
-export async function getDocumentAlerts(documentId: string, token: string) {
+export async function getDocumentAlerts(documentId: string) {
   const res = await request<{ alerts: DocumentAlert[] }>(
     `/documents/${documentId}/alerts`,
-    { method: "GET", token }
+    { method: "GET" }
   );
   return res.alerts;
 }
@@ -290,52 +278,44 @@ export async function getDocumentAlerts(documentId: string, token: string) {
 // POST /documents/:documentId/alerts
 export async function createDocumentAlert(
   documentId: string,
-  body: CreateAlertBody,
-  token: string
+  body: CreateAlertBody
 ) {
   return request<DocumentAlert>(`/documents/${documentId}/alerts`, {
     method: "POST",
-    token,
     body: JSON.stringify(body),
   });
 }
 
 // PUT /alerts/:alertId
-export async function updateAlert(
-  alertId: string,
-  body: UpdateAlertBody,
-  token: string
-) {
+export async function updateAlert(alertId: string, body: UpdateAlertBody) {
   return request<{ success: boolean; alert_id: string }>(
     `/alerts/${alertId}`,
-    { method: "PUT", token, body: JSON.stringify(body) }
+    { method: "PUT", body: JSON.stringify(body) }
   );
 }
 
 // DELETE /alerts/:alertId
-export async function deleteAlert(alertId: string, token: string) {
+export async function deleteAlert(alertId: string) {
   return request<{ success: boolean; message: string }>(
     `/alerts/${alertId}`,
-    { method: "DELETE", token }
+    { method: "DELETE" }
   );
 }
 
 // GET /settings/notifications
-export async function getNotificationSettings(token: string) {
+export async function getNotificationSettings() {
   return request<NotificationSettings>("/settings/notifications", {
     method: "GET",
-    token,
   });
 }
 
 // PATCH /settings/notifications
 export async function updateNotificationSettings(
-  body: Partial<NotificationSettings>,
-  token: string
+  body: Partial<NotificationSettings>
 ) {
   return request<{ success: boolean; settings: NotificationSettings }>(
     "/settings/notifications",
-    { method: "PATCH", token, body: JSON.stringify(body) }
+    { method: "PATCH", body: JSON.stringify(body) }
   );
 }
 

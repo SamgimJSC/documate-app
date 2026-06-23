@@ -66,7 +66,6 @@ export default function MyPageScreen() {
   const router = useRouter();
   const {
     user,
-    token,
     logout,
     isBiometricEnabled,
     enableBiometric,
@@ -80,14 +79,13 @@ export default function MyPageScreen() {
   const documents = useDocStore((s) => s.documents);
 
   useEffect(() => {
-    if (!token) return;
-    getNotificationSettings(token)
+    getNotificationSettings()
       .then((settings) => {
         setPushEnabled(settings.app_push_enabled);
         setEmailEnabled(settings.email_enabled);
       })
       .catch((e) => console.log('알림 설정 조회 실패:', e));
-  }, [token]);
+  }, []);
 
   const handlePushToggle = async (value: boolean) => {
     setPushEnabled(value);
@@ -96,20 +94,16 @@ export default function MyPageScreen() {
     } else {
       await cancelAllNotifications();
     }
-    if (token) {
-      updateNotificationSettings({ app_push_enabled: value }, token).catch((e) =>
-        console.log('알림 설정 업데이트 실패:', e)
-      );
-    }
+    updateNotificationSettings({ app_push_enabled: value }).catch((e) =>
+      console.log('알림 설정 업데이트 실패:', e)
+    );
   };
 
   const handleEmailToggle = async (value: boolean) => {
     setEmailEnabled(value);
-    if (token) {
-      updateNotificationSettings({ email_enabled: value }, token).catch((e) =>
-        console.log('알림 설정 업데이트 실패:', e)
-      );
-    }
+    updateNotificationSettings({ email_enabled: value }).catch((e) =>
+      console.log('알림 설정 업데이트 실패:', e)
+    );
   };
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(user?.nickname ?? "");
