@@ -4,7 +4,14 @@ import { useReceiptStore } from "@/stores/receipt-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { useAuthStore } from '@/stores/auth-store';
+import { useReceiptStore } from '@/stores/receipt-store';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useEffect } from 'react';
 import {
+  ActivityIndicator,
   Platform,
   ScrollView,
   StyleSheet,
@@ -52,9 +59,14 @@ export default function ReceiptScreen() {
     getCategoryBreakdown,
     selectedMonth,
   } = useReceiptStore();
+  const { getReceiptsForMonth, getTotalForMonth, getCategoryBreakdown, selectedMonth, fetchReceipts, isLoading } = useReceiptStore();
 
   const today = new Date().toISOString().split("T")[0];
   const currentMonth = today.slice(0, 7);
+
+  useEffect(() => {
+    fetchReceipts(currentMonth);
+  }, [currentMonth]);
   const receipts = getReceiptsForMonth(currentMonth);
   const total = getTotalForMonth(currentMonth);
   const rawBreakdown = getCategoryBreakdown(currentMonth);
@@ -182,7 +194,11 @@ export default function ReceiptScreen() {
               ) : null}
             </View>
           </View>
-          {receipts.length === 0 ? (
+          {isLoading ? (
+            <View style={styles.empty}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+            </View>
+          ) : receipts.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyIcon}>🧾</Text>
               <Text style={styles.emptyText}>이번 달 영수증이 없습니다</Text>

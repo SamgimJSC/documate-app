@@ -6,7 +6,15 @@ import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
+import { Badge } from '@/components/common/badge';
+import { DocumentCategory } from '@/constants/mock-data';
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { useDocStore } from '@/stores/doc-store';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Platform,
   ScrollView,
   StyleSheet,
@@ -25,6 +33,8 @@ const CATEGORIES: (DocumentCategory | "전체")[] = [
   "보험서류",
   "기타",
 ];
+// 서버 카테고리 로드 전 fallback
+const FALLBACK_CATEGORIES: (DocumentCategory | '전체')[] = ['전체', '계약서', '보증서', '처방전', '보험서류', '기타'];
 
 const CATEGORY_ICONS: Record<string, string> = {
   계약서: "📄",
@@ -46,6 +56,8 @@ export default function CabinetScreen() {
     toggleFavorite,
   } = useDocStore();
   const [catFilter, setCatFilter] = useState<DocumentCategory | "전체">("전체");
+  const { getFilteredDocuments, setSearchQuery, setSelectedCategory, searchQuery, selectedCategory, toggleFavorite, fetchDocuments, fetchCategories, categories, isLoading } = useDocStore();
+  const [catFilter, setCatFilter] = useState<DocumentCategory | '전체'>('전체');
   // 정렬 방식: 'recent'=최신순(기본), 'name'=이름순
   const [sortBy, setSortBy] = useState<"recent" | "name">("recent");
   // 정렬 드롭다운 열림 여부
@@ -55,6 +67,17 @@ export default function CabinetScreen() {
     setCatFilter(cat);
     setSelectedCategory(cat === "전체" ? null : cat);
   };
+
+  // 서버에서 카테고리 목록 구성 (없으면 FALLBACK 사용)
+  const categoryTabs: (DocumentCategory | '전체')[] =
+    categories.length > 0
+      ? ['전체', ...(categories.map((c) => c.name) as DocumentCategory[])]
+      : FALLBACK_CATEGORIES;
+
+  useEffect(() => {
+    fetchDocuments();
+    fetchCategories();
+  }, []);
 
   // 카테고리/검색 필터 결과
   let docs = getFilteredDocuments();
@@ -198,6 +221,8 @@ export default function CabinetScreen() {
         contentContainerStyle={styles.catScroll}
       >
         {CATEGORIES.map((cat) => (
+        contentContainerStyle={styles.catScroll}>
+        {categoryTabs.map((cat) => (
           <TouchableOpacity
             key={cat}
             onPress={() => handleCatChange(cat)}
@@ -221,6 +246,12 @@ export default function CabinetScreen() {
         showsVerticalScrollIndicator={false}
       >
         {docs.length === 0 ? (
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isLoading ? (
+          <View style={styles.empty}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+          </View>
+        ) : docs.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>📂</Text>
             <Text style={styles.emptyTitle}>문서가 없습니다</Text>
@@ -452,3 +483,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: "700", color: Colors.gray700 },
   emptyDesc: { fontSize: 14, color: Colors.gray400, textAlign: "center" },
 });
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: Colors.gray700 },
+  emptyDesc: { fontSize: 14, color: Colors.gray400, textAlign: 'center' },
+});
+

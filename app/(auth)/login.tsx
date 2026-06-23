@@ -41,18 +41,23 @@ export default function LoginScreen() {
     try {
       await axiosInstance.post("/auth/login", { email, password });
 
+      const userRes = await axiosInstance.get("/users/me");
+      const userData = userRes.data;
+
       useAuthStore.setState({
         isAuthenticated: true,
         isPinVerified: true,
-        user: {
-          id: "",
-          email,
-          nickname: "",
-          plan: "free",
-          storageUsed: 0,
-          storageLimit: 5,
-        },
         token: "logged-in",
+        user: {
+          id: userData.userId,
+          email: userData.email,
+          nickname: userData.nickname,
+          plan: userData.plan === "PRO" ? "pro" : "free",
+          storageUsed: Number(userData.storageUsedBytes) / 1024 / 1024 / 1024,
+          storageLimit: userData.storageQuotaBytes
+            ? Number(userData.storageQuotaBytes) / 1024 / 1024 / 1024
+            : 5,
+        },
       });
 
       router.replace("/(tabs)");

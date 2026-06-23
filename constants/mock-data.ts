@@ -3,6 +3,7 @@ export type DocumentStatus = 'active' | 'expiring_soon' | 'expired';
 
 export interface Document {
   id: string;
+  categoryId?: number;
   title: string;
   category: DocumentCategory;
   uploadedAt: string;

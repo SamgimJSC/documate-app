@@ -89,6 +89,9 @@ export const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
+
+
+  
   checkboxMark: { color: Colors.white, fontSize: 14, fontWeight: "700" },
   checkboxLabel: { fontSize: 14, color: Colors.gray700 },
   checkboxRequired: { color: Colors.gray700 },
@@ -98,3 +101,4 @@ export const styles = StyleSheet.create({
   loginLabel: { fontSize: 14, color: Colors.gray500 },
   loginLink: { fontSize: 14, color: Colors.primary, fontWeight: "600" },
 });
+
