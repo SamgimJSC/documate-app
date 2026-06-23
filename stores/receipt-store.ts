@@ -1,10 +1,13 @@
+import { Receipt, ReceiptCategory } from '@/constants/mock-data';
+import { getReceipts, updateReceiptFavorite } from '@/services/receipts';
 import { create } from 'zustand';
-import { Receipt, MOCK_RECEIPTS } from '@/constants/mock-data';
 
 interface ReceiptState {
   receipts: Receipt[];
   selectedMonth: string;
+  isLoading: boolean;
 
+  fetchReceipts: (month?: string) => Promise<void>;
   addReceipt: (receipt: Receipt) => void;
   removeReceipt: (id: string) => void;
   toggleFavorite: (id: string) => void;
@@ -20,8 +23,21 @@ const getCurrentMonth = () => {
 };
 
 export const useReceiptStore = create<ReceiptState>()((set, get) => ({
-  receipts: MOCK_RECEIPTS,
+  receipts: [],
   selectedMonth: getCurrentMonth(),
+  isLoading: false,
+
+  fetchReceipts: async (month?: string) => {
+    set({ isLoading: true });
+    try {
+      const data = await getReceipts({ month, per_page: 100 });
+      set({ receipts: data });
+    } catch (e) {
+      console.error('영수증 목록 조회 실패:', e);
+    } finally {
+      set({ isLoading: false });
+    }
+  },
 
   addReceipt: (receipt) =>
     set((state) => ({ receipts: [receipt, ...state.receipts] })),
@@ -29,12 +45,28 @@ export const useReceiptStore = create<ReceiptState>()((set, get) => ({
   removeReceipt: (id) =>
     set((state) => ({ receipts: state.receipts.filter((r) => r.id !== id) })),
 
-  toggleFavorite: (id) =>
+  toggleFavorite: async (id) => {
+    const receipt = get().receipts.find((r) => r.id === id);
+    if (!receipt) return;
+
+    const newFav = !receipt.isFavorite;
     set((state) => ({
       receipts: state.receipts.map((r) =>
-        r.id === id ? { ...r, isFavorite: !r.isFavorite } : r
+        r.id === id ? { ...r, isFavorite: newFav } : r
       ),
-    })),
+    }));
+
+    try {
+      await updateReceiptFavorite(id, newFav);
+    } catch (e) {
+      set((state) => ({
+        receipts: state.receipts.map((r) =>
+          r.id === id ? { ...r, isFavorite: !newFav } : r
+        ),
+      }));
+      console.error('영수증 즐겨찾기 API 실패:', e);
+    }
+  },
 
   setSelectedMonth: (month) => set({ selectedMonth: month }),
 
