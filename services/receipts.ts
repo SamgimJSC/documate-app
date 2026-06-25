@@ -2,35 +2,58 @@ import { Receipt, ReceiptCategory } from '@/constants/mock-data';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, '');
 
-type ApiReceiptItem = {
-  receipt_id?: string;
-  id?: string;
-  store_name?: string;
-  storeName?: string;
-  category: string;
-  amount: number;
-  date: string;
-  image_url?: string;
-  imageUri?: string;
-  is_favorite?: boolean;
-  isFavorite?: boolean;
-  items?: { name: string; price: number }[];
-};
-
-type GetReceiptsResponse = {
-  page?: number;
-  per_page?: number;
-  limit?: number;
-  total?: number;
-  receipts: ApiReceiptItem[];
-};
-
 type ApiResponse<T> = {
   message?: string;
   error?: string;
   errorCode?: string;
   statusCode?: number;
   data: T;
+};
+
+type ApiReceiptItem = {
+  receiptId?: string;
+  receipt_id?: string;
+  id?: string;
+  storeName?: string;
+  store_name?: string;
+  totalAmount?: number | string;
+  amount?: number | string;
+  purchaseDate?: string;
+  date?: string;
+  categoryName?: string | null;
+  category?: string;
+  icon?: string;
+  fileUrl?: string | null;
+  image_url?: string;
+  imageUri?: string;
+  isConfirmed?: boolean;
+  is_favorite?: boolean;
+  isFavorite?: boolean;
+  createdAt?: string;
+  items?: { name: string; price: number }[];
+};
+
+type GetReceiptsResponse = {
+  page: number;
+  size: number;
+  totalCount: number;
+  totalPages: number;
+  receipts: ApiReceiptItem[];
+};
+
+type ReceiptSort = 'latest' | 'purchaseDate' | 'amountDesc' | 'amountAsc';
+
+type GetReceiptsParams = {
+  year?: number;
+  month?: string | number;
+  date?: string;
+  fromDate?: string;
+  toDate?: string;
+  categoryId?: number;
+  keyword?: string;
+  sort?: ReceiptSort;
+  page?: number;
+  size?: number;
 };
 
 function unwrapApiResponse<T>(result: T | ApiResponse<T>): T {
@@ -40,28 +63,32 @@ function unwrapApiResponse<T>(result: T | ApiResponse<T>): T {
   return result as T;
 }
 
+function parseMonth(month?: string | number) {
+  if (month === undefined || month === null || month === '') return {};
+  if (typeof month === 'number') return { month };
+
+  const match = month.match(/^(\d{4})-(\d{1,2})$/);
+  if (match) {
+    return { year: Number(match[1]), month: Number(match[2]) };
+  }
+
+  const value = Number(month);
+  return Number.isInteger(value) ? { month: value } : {};
+}
+
 function toReceipt(receipt: ApiReceiptItem): Receipt {
+  const amount = Number(receipt.totalAmount ?? receipt.amount ?? 0);
+
   return {
-    id: receipt.receipt_id ?? receipt.id ?? '',
-    storeName: receipt.store_name ?? receipt.storeName ?? '',
-    category: (receipt.category as ReceiptCategory) ?? '기타',
-    amount: receipt.amount,
-    date: receipt.date,
-    imageUri: receipt.image_url ?? receipt.imageUri,
+    id: receipt.receiptId ?? receipt.receipt_id ?? receipt.id ?? '',
+    storeName: receipt.storeName ?? receipt.store_name ?? '',
+    category: ((receipt.categoryName ?? receipt.category ?? '기타') as ReceiptCategory),
+    amount: Number.isFinite(amount) ? amount : 0,
+    date: receipt.purchaseDate ?? receipt.date ?? receipt.createdAt?.slice(0, 10) ?? '',
+    imageUri: receipt.fileUrl ?? receipt.image_url ?? receipt.imageUri ?? undefined,
     isFavorite: receipt.is_favorite ?? receipt.isFavorite ?? false,
     items: receipt.items,
   };
-}
-
-function normalizeMonth(month?: string | number) {
-  if (month === undefined || month === null || month === '') return undefined;
-  if (typeof month === 'number') return month;
-
-  const match = month.match(/^\d{4}-(\d{1,2})$/);
-  const value = Number(match ? match[1] : month);
-  return Number.isInteger(value) && value >= 1 && value <= 12
-    ? value
-    : undefined;
 }
 
 async function receiptRequest<T>(
@@ -87,24 +114,30 @@ async function receiptRequest<T>(
 }
 
 export async function getReceipts(
-  params: {
-    month?: string | number;
-    category?: string;
-    favorite?: boolean;
-    page?: number;
-    limit?: number;
-  } = {},
+  params: GetReceiptsParams = {},
 ): Promise<Receipt[]> {
   const query = new URLSearchParams();
-  const month = normalizeMonth(params.month);
+  const parsedMonth = parseMonth(params.month);
+  const year = params.year ?? parsedMonth.year;
+  const month = parsedMonth.month;
 
-  if (month !== undefined) query.append('month', String(month));
-  if (params.category) query.append('category', params.category);
-  if (params.favorite !== undefined) {
-    query.append('favorite', String(params.favorite));
+  if (params.date) {
+    query.append('date', params.date);
+  } else if (year && month) {
+    query.append('year', String(year));
+    query.append('month', String(month));
+  } else {
+    if (params.fromDate) query.append('fromDate', params.fromDate);
+    if (params.toDate) query.append('toDate', params.toDate);
   }
+
+  if (params.categoryId !== undefined) {
+    query.append('categoryId', String(params.categoryId));
+  }
+  if (params.keyword) query.append('keyword', params.keyword);
+  if (params.sort) query.append('sort', params.sort);
   query.append('page', String(params.page ?? 1));
-  if (params.limit !== undefined) query.append('limit', String(params.limit));
+  query.append('size', String(Math.min(params.size ?? 100, 100)));
 
   const result = await receiptRequest<
     GetReceiptsResponse | ApiResponse<GetReceiptsResponse>

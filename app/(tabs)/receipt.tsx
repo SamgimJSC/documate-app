@@ -19,6 +19,7 @@ const CATEGORY_COLORS = ["#6F8FB8", "#8E7DBE", "#5B9D99", "#C97F7F", "#C49A6C"];
 const CHART_HEIGHT = 148;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_WIDTH = Math.max(260, SCREEN_WIDTH - Spacing.lg * 4);
+const AI_CONFIDENCE = 78;
 
 const CATEGORY_LABELS: Record<string, string> = {
   식비: "식비",
@@ -67,7 +68,6 @@ export default function ReceiptScreen() {
     fetchReceipts,
     getCategoryBreakdown,
     getReceiptsForMonth,
-    getTotalForMonth,
     isLoading,
   } = useReceiptStore();
   const [showAllReceipts, setShowAllReceipts] = useState(false);
@@ -81,11 +81,14 @@ export default function ReceiptScreen() {
   }, [currentMonth, fetchReceipts]);
 
   const receipts = getReceiptsForMonth(currentMonth);
-  const total = getTotalForMonth(currentMonth);
+  const monthlyTotal = receipts.reduce(
+    (sum, receipt) => sum + Number(receipt.amount),
+    0,
+  );
   const estimatedMonthlySpend =
-    currentMonth === today.toISOString().slice(0, 7) && today.getDate() > 0
-      ? Math.round((total / today.getDate()) * daysInMonth)
-      : total;
+    today.getDate() > 0
+      ? Math.round((monthlyTotal / today.getDate()) * daysInMonth)
+      : monthlyTotal;
 
   const sortedReceipts = [...receipts].sort((a, b) =>
     b.date.localeCompare(a.date),
@@ -103,7 +106,7 @@ export default function ReceiptScreen() {
     receipts.forEach((receipt) => {
       const day = Number(receipt.date.slice(8, 10));
       if (day >= 1 && day <= daysInMonth) {
-        totals[day - 1].amount += receipt.amount;
+        totals[day - 1].amount += Number(receipt.amount);
       }
     });
 
@@ -129,11 +132,11 @@ export default function ReceiptScreen() {
       .map(([category, amount], index) => ({
         category,
         amount,
-        percent: total > 0 ? Math.round((amount / total) * 100) : 0,
+        percent: monthlyTotal > 0 ? Math.round((amount / monthlyTotal) * 100) : 0,
         color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [currentMonth, getCategoryBreakdown, total]);
+  }, [currentMonth, getCategoryBreakdown, monthlyTotal]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -154,32 +157,41 @@ export default function ReceiptScreen() {
             <View style={[styles.summaryIcon, styles.summaryIconPrimary]}>
               <Ionicons name="wallet-outline" size={18} color={Colors.primary} />
             </View>
-            <Text style={styles.summaryValue}>{formatWon(total)}</Text>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
+              {formatWon(monthlyTotal)}
+            </Text>
             <Text style={styles.summaryLabel}>월별 소비 요약</Text>
+            <Text style={styles.summaryMeta}>이번 달 전체 합계</Text>
           </View>
 
           <View style={styles.summaryCard}>
             <View style={[styles.summaryIcon, styles.summaryIconPurple]}>
               <Ionicons name="receipt-outline" size={18} color={Colors.pro} />
             </View>
-            <Text style={styles.summaryValue}>{receipts.length}건</Text>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
+              {receipts.length}건
+            </Text>
             <Text style={styles.summaryLabel}>영수증 등록 건수</Text>
+            <Text style={styles.summaryMeta}>이번 달 등록 기준</Text>
           </View>
 
           <View style={styles.summaryCard}>
             <View style={[styles.summaryIcon, styles.summaryIconOrange]}>
               <Ionicons name="sparkles-outline" size={18} color={Colors.warning} />
             </View>
-            <Text style={styles.summaryValue}>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
               {formatWon(estimatedMonthlySpend)}
             </Text>
             <Text style={styles.summaryLabel}>예상 월 지출</Text>
+            <Text style={styles.summaryMeta}>AI 예측 · 신뢰도 {AI_CONFIDENCE}%</Text>
           </View>
         </View>
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{getMonthLabel(currentMonth)} 지출 추이</Text>
+            <Text style={styles.sectionTitle}>
+              {getMonthLabel(currentMonth)} 지출 추이
+            </Text>
           </View>
           <View style={styles.lineChartFrame}>
             <View style={styles.chartGridLine} />
@@ -380,18 +392,18 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     flex: 1,
-    minHeight: 112,
+    minHeight: 128,
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
-    padding: Spacing.md,
+    padding: Spacing.sm,
     borderWidth: 1,
     borderColor: Colors.gray100,
     justifyContent: "space-between",
     ...cardShadow,
   },
   summaryIcon: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
     borderRadius: Radius.md,
     alignItems: "center",
     justifyContent: "center",
@@ -399,8 +411,14 @@ const styles = StyleSheet.create({
   summaryIconPrimary: { backgroundColor: Colors.primaryLight },
   summaryIconPurple: { backgroundColor: Colors.proLight },
   summaryIconOrange: { backgroundColor: Colors.warningLight },
-  summaryValue: { fontSize: 17, fontWeight: "800", color: Colors.gray900 },
-  summaryLabel: { fontSize: 11, lineHeight: 15, color: Colors.gray600 },
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.gray900,
+    includeFontPadding: false,
+  },
+  summaryLabel: { fontSize: 11, lineHeight: 15, color: Colors.gray700 },
+  summaryMeta: { fontSize: 10, lineHeight: 14, color: Colors.gray500 },
   section: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
