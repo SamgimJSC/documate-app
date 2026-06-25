@@ -1,6 +1,6 @@
 import { Receipt, ReceiptCategory } from '@/constants/mock-data';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 
 type ApiReceiptItem = {
   receipt_id: string;
