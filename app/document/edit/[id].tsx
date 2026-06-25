@@ -1,12 +1,17 @@
 import { DocumentCategory } from '@/constants/mock-data';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { cancelNotification, scheduleExpiryNotification } from '@/services/notifications';
+import { updateDocument as apiUpdateDocument } from '@/services/document';
+import { cancelNotification, createDocumentAlert, scheduleExpiryNotification } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
+import { showToast } from '@/stores/toast-store';
+import { getErrorMessage } from '@/utils/error';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -55,16 +60,19 @@ function formatDateInput(text: string): string {
 }
 
 export default function DocumentEditScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
   const router = useRouter();
-  const { documents, updateDocument } = useDocStore();
+  const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId } = useDocStore();
   const doc = documents.find((d) => d.id === id);
+
+  const isManual = manual === '1'; // 수기 등록으로 들어온 경우
 
   // 입력값 상태 (기존 문서 값으로 초기화)
   const [title, setTitle] = useState(doc?.title ?? '');
   const [category, setCategory] = useState<DocumentCategory>(doc?.category ?? '기타');
   const [expiryDate, setExpiryDate] = useState(doc?.expiryDate ?? '');
   const [notes, setNotes] = useState(doc?.extractedData?.notes ?? '');
+  const [imageUri, setImageUri] = useState<string | undefined>(doc?.imageUri);
 
   // 알림 시점(며칠 전). null = 알림 없음. 기존 문서의 첫 알림에서 일수 추정
   const initialNotiDays = (() => {
@@ -78,6 +86,8 @@ export default function DocumentEditScreen() {
   })();
   const [notiDays, setNotiDays] = useState<number | null>(initialNotiDays);
   const [notiMenuOpen, setNotiMenuOpen] = useState(false);
+  const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   if (!doc) {
     return (
@@ -91,6 +101,36 @@ export default function DocumentEditScreen() {
       </SafeAreaView>
     );
   }
+
+  // 갤러리에서 사진 선택
+  const pickFromGallery = async () => {
+    setPhotoSheetOpen(false);
+    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+    if (!result.canceled) setImageUri(result.assets[0].uri);
+  };
+
+  // 카메라로 촬영
+  const takePhoto = async () => {
+    setPhotoSheetOpen(false);
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('권한 필요', '카메라 접근 권한이 필요합니다.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    if (!result.canceled) setImageUri(result.assets[0].uri);
+  };
+
+  // 사진 첨부 방법 선택 → 바텀시트 열기
+  const handleAttachPhoto = () => setPhotoSheetOpen(true);
+
+  // 제목 없이 화면을 떠날 때: 수기 등록으로 만든 빈 문서면 자동 삭제
+  const handleClose = () => {
+    if (isManual && !title.trim()) {
+      removeDocument(doc.id);
+    }
+    router.back();
+  };
 
   // 실제 저장 + 알림 예약 + 상세 페이지로 이동
   const commitSave = async () => {
@@ -126,19 +166,91 @@ export default function DocumentEditScreen() {
       notifications = [];
     }
 
+    // 로컬 상태 업데이트
     updateDocument(doc.id, {
       title: title.trim(),
       category,
       expiryDate: expiryDate.trim() || undefined,
       extractedData: { ...doc.extractedData, notes: notes.trim() || undefined },
       notifications,
+      imageUri,
     });
 
-    // 수정된 값이 반영된 상세 페이지로 이동 (뒤로가기 시 수정 화면 안 거치도록 replace)
-    router.replace(`/document/${doc.id}`);
+    // 서버에 반영할 때 사용할 실제 문서 id (생성 성공 시 진짜 id로 교체됨)
+    let serverId = doc.id;
+    const isLocalDraft = doc.id.startsWith('doc-');
+    const matchedCat = categories.find((c) => c.name === category);
+
+    try {
+      if (isLocalDraft) {
+        // 수기 등록 → 서버에 새 문서 생성
+        // fileUrl/fileName/fileType은 사진 없는 수기 문서 기준 placeholder.
+        // (사진이 있으면 아래 upload-progress 흐름에서 별도 업로드로 채워짐)
+        const newId = await createDocumentOnServer({
+          title: title.trim(),
+          fileUrl: '',
+          fileName: `${title.trim() || 'document'}.manual`,
+          fileType: 'PDF',
+          expiryDate: expiryDate.trim() || undefined,
+          ocrText: notes.trim() || undefined,
+          ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
+        });
+        // 로컬 임시 id를 서버가 준 진짜 id로 교체
+        replaceDocumentId(doc.id, newId);
+        serverId = newId;
+      } else {
+        // 기존 문서 → 수정
+        await apiUpdateDocument(doc.id, {
+          title: title.trim(),
+          expiryDate: expiryDate.trim() || undefined,
+          ocrText: notes.trim() || undefined,
+          ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
+        });
+      }
+
+      // 서버 알림 생성 (만료일 + 알림 시점이 모두 설정된 경우)
+      if (expiryDate.trim() && notiDays !== null) {
+        try {
+          const option = NOTI_OPTIONS.find((o) => o.days === notiDays);
+          const notiDate = subtractDays(expiryDate.trim(), notiDays);
+          await createDocumentAlert(serverId, {
+            notify_date: notiDate,
+            reason: option ? `${option.label} 알림` : '만료 알림',
+            channel_app_push: true,
+            channel_email: false,
+            channel_web_push: false,
+          });
+        } catch (e) {
+          console.log('서버 알림 등록 실패:', e);
+        }
+      }
+    } catch (e) {
+      console.error('문서 저장 API 실패:', e);
+      // 생성 실패 시: 서버에 문서가 안 만들어졌으므로 사용자에게 알리고 중단
+      if (isLocalDraft) {
+        showToast(getErrorMessage(e), 'error');
+        return;
+      }
+      // 수정 실패: 로컬 반영은 됐지만 서버 반영 실패 → 가볍게 안내만 (화면 이동은 진행)
+      showToast(getErrorMessage(e), 'error');
+    }
+
+    // 수기 등록이고 사진이 있으면 업로드 진행 화면을 거쳐 상세로
+    if (isManual && imageUri) {
+      router.replace({
+        pathname: '/upload-progress',
+        params: { uris: JSON.stringify([imageUri]), manual: '1', docId: serverId },
+      });
+      return;
+    }
+
+    // 그 외에는 바로 상세 페이지로
+    router.replace(`/document/${serverId}`);
   };
 
   const handleSave = async () => {
+    if (saving) return; // 중복 저장 방지
+
     // 제목은 비어 있으면 안 됨
     if (!title.trim()) {
       Alert.alert('입력 오류', '제목을 입력해주세요.');
@@ -160,7 +272,17 @@ export default function DocumentEditScreen() {
           `설정한 알림 날짜(${notiDate})가 이미 지났어요. 다시 한 번 확인하시겠습니까?`,
           [
             { text: '수정', style: 'cancel' }, // 저장 안 하고 화면에 머무름 (입력값 유지)
-            { text: '이대로 완료', onPress: () => commitSave() },
+            {
+              text: '이대로 완료',
+              onPress: async () => {
+                setSaving(true);
+                try {
+                  await commitSave();
+                } finally {
+                  setSaving(false);
+                }
+              },
+            },
           ]
         );
         return;
@@ -168,18 +290,23 @@ export default function DocumentEditScreen() {
     }
 
     // 날짜 문제 없으면 바로 저장
-    await commitSave();
+    setSaving(true);
+    try {
+      await commitSave();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
           <Ionicons name="close" size={24} color={Colors.gray700} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>문서 수정</Text>
-        <TouchableOpacity onPress={handleSave} style={styles.saveBtn}>
-          <Text style={styles.saveBtnText}>저장</Text>
+        <Text style={styles.headerTitle}>{isManual ? '문서 등록' : '문서 수정'}</Text>
+        <TouchableOpacity onPress={handleSave} style={[styles.saveBtn, saving && styles.saveBtnDisabled]} disabled={saving}>
+          <Text style={styles.saveBtnText}>{saving ? '저장 중...' : '저장'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -191,6 +318,33 @@ export default function DocumentEditScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
+          {/* 사진 첨부 (수기 등록일 때만) */}
+          {isManual && (
+            <>
+              <Text style={styles.label}>사진 첨부 (선택)</Text>
+              {imageUri ? (
+                <View style={styles.imageWrap}>
+                  <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                  <View style={styles.imageBtnRow}>
+                    <TouchableOpacity style={styles.imageBtn} onPress={handleAttachPhoto}>
+                      <Ionicons name="refresh-outline" size={16} color={Colors.primary} />
+                      <Text style={styles.imageBtnText}>변경</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.imageBtn} onPress={() => setImageUri(undefined)}>
+                      <Ionicons name="trash-outline" size={16} color={Colors.error} />
+                      <Text style={[styles.imageBtnText, { color: Colors.error }]}>삭제</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.imagePlaceholder} onPress={handleAttachPhoto}>
+                  <Ionicons name="camera-outline" size={28} color={Colors.gray400} />
+                  <Text style={styles.imagePlaceholderText}>사진 추가 (카메라 / 갤러리)</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+
           {/* 제목 */}
           <Text style={styles.label}>제목</Text>
           <TextInput
@@ -306,6 +460,36 @@ export default function DocumentEditScreen() {
           />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* 사진 첨부 바텀시트 (Modal 대신 절대위치 View — picker 충돌 방지) */}
+      {photoSheetOpen && (
+        <View style={styles.sheetRoot}>
+          <TouchableOpacity
+            style={styles.sheetOverlay}
+            activeOpacity={1}
+            onPress={() => setPhotoSheetOpen(false)}
+          />
+          <View style={styles.sheetWrap}>
+            <View style={styles.sheetCard}>
+              <Text style={styles.sheetTitle}>사진 첨부</Text>
+              <TouchableOpacity style={styles.sheetItem} onPress={takePhoto}>
+                <Ionicons name="camera-outline" size={22} color={Colors.gray700} />
+                <Text style={styles.sheetItemText}>카메라로 촬영</Text>
+              </TouchableOpacity>
+              <View style={styles.sheetDivider} />
+              <TouchableOpacity style={styles.sheetItem} onPress={pickFromGallery}>
+                <Ionicons name="image-outline" size={22} color={Colors.gray700} />
+                <Text style={styles.sheetItemText}>갤러리에서 선택</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={styles.sheetCancel}
+              onPress={() => setPhotoSheetOpen(false)}>
+              <Text style={styles.sheetCancelText}>취소</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -333,6 +517,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: Colors.primary,
   },
+  saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 
   scroll: { flex: 1 },
@@ -406,4 +591,74 @@ const styles = StyleSheet.create({
   },
   dropdownItemText: { fontSize: 14, color: Colors.gray700 },
   dropdownItemTextActive: { color: Colors.primary, fontWeight: '600' },
+
+  imagePlaceholder: {
+    height: 140,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.gray300,
+    borderStyle: 'dashed',
+    backgroundColor: Colors.gray50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  imagePlaceholderText: { fontSize: 13, color: Colors.gray400 },
+  imageWrap: { gap: Spacing.sm },
+  imagePreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.gray100,
+  },
+  imageBtnRow: { flexDirection: 'row', gap: Spacing.sm },
+  imageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+  },
+  imageBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+
+  sheetRoot: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'flex-end',
+    zIndex: 100,
+  },
+  sheetOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  sheetWrap: { padding: Spacing.sm, gap: Spacing.sm, zIndex: 101 },
+  sheetCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, overflow: 'hidden' },
+  sheetTitle: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: Colors.gray400,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray100,
+  },
+  sheetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: 16,
+    paddingHorizontal: Spacing.lg,
+  },
+  sheetItemText: { fontSize: 16, color: Colors.gray900 },
+  sheetDivider: { height: 1, backgroundColor: Colors.gray100, marginLeft: Spacing.lg },
+  sheetCancel: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  sheetCancelText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
 });

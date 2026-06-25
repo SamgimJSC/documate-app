@@ -1,16 +1,25 @@
 import { Badge } from '@/components/common/badge';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { downloadPdf } from '@/services/download';
+import {
+  DocumentAlert,
+  cancelNotification,
+  deleteAlert,
+  getDocumentAlerts,
+} from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
+import { showToast } from '@/stores/toast-store';
+import { getErrorMessage } from '@/utils/error';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -20,11 +29,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { documents, toggleFavorite, removeDocument, updateDocument } = useDocStore();
+  const [downloading, setDownloading] = useState(false);
+  const { documents, toggleFavorite, removeDocument } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
   const [expandedInfo, setExpandedInfo] = useState(true);
   const [expandedNotif, setExpandedNotif] = useState(true);
+  const [serverAlerts, setServerAlerts] = useState<DocumentAlert[]>([]);
+
+  useEffect(() => {
+    if (!doc) return;
+    getDocumentAlerts(doc.id)
+      .then(setServerAlerts)
+      .catch((e) => console.log('문서 알림 조회 실패:', e));
+  }, [doc?.id]);
 
   if (!doc) {
     return (
@@ -45,7 +63,11 @@ export default function DocumentDetailScreen() {
       {
         text: '삭제',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
+          // 이 문서에 예약된 알림 모두 취소
+          for (const n of doc.notifications) {
+            if (n.id) await cancelNotification(n.id);
+          }
           removeDocument(doc.id);
           router.back();
         },
@@ -53,11 +75,13 @@ export default function DocumentDetailScreen() {
     ]);
   };
 
-  const toggleNotification = (notifId: string) => {
-    const updated = doc.notifications.map((n) =>
-      n.id === notifId ? { ...n, enabled: !n.enabled } : n
-    );
-    updateDocument(doc.id, { notifications: updated });
+  const handleDeleteAlert = async (alertId: string) => {
+    setServerAlerts((prev) => prev.filter((a) => a.alert_id !== alertId));
+    try {
+      await deleteAlert(alertId);
+    } catch (e) {
+      console.log('알림 삭제 실패:', e);
+    }
   };
 
   const categoryIcons: Record<string, string> = {
@@ -95,18 +119,41 @@ export default function DocumentDetailScreen() {
               color={doc.isFavorite ? Colors.warning : Colors.gray400}
             />
           </TouchableOpacity>
+          {/*
+            TODO [서버 연동 시 확인]: 다운로드 파일 형식 / URL 정리 필요
+            - 현재 doc.imageUri를 받아서 무조건 `${doc.title}.pdf`로 저장 중인데,
+              imageUri는 사진(JPG/PNG)일 수도 있음. PDF가 아닌 파일을 .pdf로 저장하면
+              파일이 안 열릴 수 있음.
+            - 시원이 서버가 fileUrl / fileType을 실제로 뭘로 주는지 확인 후,
+              fileType(PDF/JPG/PNG)에 맞춰 확장자를 정해야 함.
+              예: const ext = doc.fileType === 'PDF' ? 'pdf' : doc.fileType.toLowerCase();
+                  downloadPdf(doc.fileUrl, `${doc.title}.${ext}`)
+            - 단, 로컬 Document 타입에는 현재 fileType 필드가 없음 → toDocument에서
+              fileType도 같이 내려주도록 추가 필요 (아래 doc-store 작업과 연계).
+          */}
           <TouchableOpacity
+            disabled={downloading}
             onPress={async () => {
+              if (!doc.imageUri) {
+                showToast('저장된 파일 URL이 없습니다.', 'error');
+                return;
+              }
+              setDownloading(true);
               try {
-                const testUrl = 'https://pdfobject.com/pdf/sample.pdf';
-                const ok = await downloadPdf(testUrl, `${doc.title}.pdf`);
-                Alert.alert(ok ? '저장 완료' : '저장 취소', ok ? 'PDF가 저장되었습니다.' : '');
+                const ok = await downloadPdf(doc.imageUri, `${doc.title}.pdf`);
+                if (ok) showToast('PDF가 저장되었습니다.', 'success');
               } catch (e) {
-                Alert.alert('다운로드 실패', '파일을 받지 못했습니다.');
+                showToast(getErrorMessage(e), 'error');
+              } finally {
+                setDownloading(false);
               }
             }}
             style={styles.headerBtn}>
-            <Ionicons name="download-outline" size={22} color={Colors.primary} />
+            {downloading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Ionicons name="download-outline" size={22} color={Colors.primary} />
+            )}
           </TouchableOpacity>
           <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
             <Ionicons name="trash-outline" size={22} color={Colors.error} />
@@ -128,6 +175,13 @@ export default function DocumentDetailScreen() {
             <Text style={styles.previewDate}>업로드: {doc.uploadedAt}</Text>
           </View>
         </View>
+
+        {/* 첨부 이미지 (있을 때만) */}
+        {doc.imageUri && (
+          <View style={styles.imageCard}>
+            <Image source={{ uri: doc.imageUri }} style={styles.docImage} resizeMode="cover" />
+          </View>
+        )}
 
         {/* 만료일 정보 */}
         {doc.expiryDate && (
@@ -197,20 +251,21 @@ export default function DocumentDetailScreen() {
           </TouchableOpacity>
           {expandedNotif && (
             <View style={styles.notifList}>
-              {doc.notifications.length === 0 ? (
+              {serverAlerts.length === 0 ? (
                 <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>
               ) : (
-                doc.notifications.map((notif) => (
-                  <View key={notif.id} style={styles.notifItem}>
+                serverAlerts.map((alert) => (
+                  <View key={alert.alert_id} style={styles.notifItem}>
                     <View style={styles.notifInfo}>
-                      <Text style={styles.notifLabel}>{notif.label}</Text>
-                      <Text style={styles.notifDate}>{notif.date}</Text>
+                      <Text style={styles.notifLabel}>{alert.reason}</Text>
+                      <Text style={styles.notifDate}>{alert.notify_date}</Text>
                     </View>
-                    <Switch
-                      value={notif.enabled}
-                      onValueChange={() => toggleNotification(notif.id)}
-                      trackColor={{ false: Colors.gray200, true: Colors.primary }}
-                    />
+                    <TouchableOpacity
+                      onPress={() => handleDeleteAlert(alert.alert_id)}
+                      style={styles.notifDeleteBtn}
+                      hitSlop={8}>
+                      <Ionicons name="trash-outline" size={18} color={Colors.error} />
+                    </TouchableOpacity>
                   </View>
                 ))
               )}
@@ -275,6 +330,16 @@ const styles = StyleSheet.create({
   previewTitle: { fontSize: 16, fontWeight: '700', color: Colors.gray900 },
   previewMeta: { flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap' },
   previewDate: { fontSize: 12, color: Colors.gray400 },
+  imageCard: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.sm,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
+      android: { elevation: 2 },
+    }),
+  },
+  docImage: { width: '100%', height: 220, borderRadius: Radius.md, backgroundColor: Colors.gray100 },
   expiryCard: { borderRadius: Radius.lg, padding: Spacing.lg, flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   expiryCardNormal: { backgroundColor: Colors.primaryLight },
   expiryCardUrgent: { backgroundColor: Colors.warningLight },
@@ -303,6 +368,7 @@ const styles = StyleSheet.create({
   notifLabel: { fontSize: 14, color: Colors.gray800, fontWeight: '500' },
   notifDate: { fontSize: 12, color: Colors.gray400 },
   notifEmpty: { fontSize: 14, color: Colors.gray400 },
+  notifDeleteBtn: { padding: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
   tag: { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: Spacing.sm, paddingVertical: 4 },
   tagText: { fontSize: 13, color: Colors.primary, fontWeight: '500' },

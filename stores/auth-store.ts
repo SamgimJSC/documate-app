@@ -41,6 +41,7 @@ interface AuthState {
   upgradeToPro: () => void;
 }
 
+// TODO [배포 전]: MOCK_USER, REGISTERED_EMAILS 전체 삭제
 const MOCK_USER: User = {
   id: "user-1",
   email: "test@example.com",
@@ -58,11 +59,16 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   isAuthenticated: false,
   isPinVerified: false,
   // Dev/test: seed a default PIN and password so login and password change can be tested.
+  // TODO [배포 전]: isPinSet: false, pin: "", password: "" 으로 초기화
   isPinSet: true,
   pin: "000000",
   password: "test",
   isBiometricEnabled: false,
 
+  // TODO [배포 전]: POST /auth/login API 실제 호출로 교체.
+  //   - 백엔드가 JWT를 response body로 반환하면 → token 저장 후 Authorization: Bearer <token> 헤더 방식 사용
+  //   - 백엔드가 HttpOnly 쿠키를 사용하면 → react-native-cookies 라이브러리로 쿠키 수동 관리 필요
+  //   - 응답에서 받은 실제 user 정보(id, nickname, plan, storageUsed 등)로 set() 해야 함
   login: async (email, _password) => {
     await new Promise((r) => setTimeout(r, 800));
     const currentPassword = get().password;
@@ -89,6 +95,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       pin: "",
     }),
 
+  // TODO [배포 전]: POST /auth/register API 실제 호출로 교체.
+  //   - 서버에서 이메일 중복 체크를 담당하므로 REGISTERED_EMAILS Set 제거
+  //   - 회원가입 성공 시 서버에서 반환한 user 정보로 set() 해야 함
   register: async (email, _password, nickname) => {
     await new Promise((r) => setTimeout(r, 800));
     if (REGISTERED_EMAILS.has(email)) {
@@ -107,6 +116,12 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   checkEmailExists: (email) => REGISTERED_EMAILS.has(email),
 
+  // TODO [배포 전]: GET /auth/check-email?email= API 호출로 교체 (클라이언트 Set 제거)
+  checkEmailExists: (email) => REGISTERED_EMAILS.has(email),
+
+  // TODO [배포 전]: 비밀번호를 클라이언트 store에 평문 저장하지 말 것.
+  //   - verifyPassword는 POST /auth/verify-password API 호출로 교체
+  //   - updatePassword는 PATCH /auth/password API 호출로 교체
   verifyPassword: (password) => get().password === password,
 
   updatePassword: async (currentPassword, newPassword) => {
