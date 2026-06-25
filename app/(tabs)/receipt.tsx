@@ -1,11 +1,11 @@
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
-import { useAuthStore } from "@/stores/auth-store";
 import { useReceiptStore } from "@/stores/receipt-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,63 +15,77 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const BREAKDOWN_CATEGORIES = ["식비", "교통", "쇼핑", "의료", "기타"] as const;
+const CATEGORY_COLORS = ["#6F8FB8", "#8E7DBE", "#5B9D99", "#C97F7F", "#C49A6C"];
+const CHART_HEIGHT = 148;
+const SCREEN_WIDTH = Dimensions.get("window").width;
+const CHART_WIDTH = Math.max(260, SCREEN_WIDTH - Spacing.lg * 4);
 
-type BreakdownCategory = (typeof BREAKDOWN_CATEGORIES)[number];
-
-const CATEGORY_COLORS: Record<BreakdownCategory, string> = {
-  식비: "#FF6B6B",
-  교통: "#98D8C8",
-  쇼핑: "#4ECDC4",
-  의료: "#F7B801",
-  기타: "#DFE6E9",
+const CATEGORY_LABELS: Record<string, string> = {
+  식비: "식비",
+  카페: "카페",
+  쇼핑: "쇼핑",
+  교통: "교통",
+  의료: "의료",
+  기타: "기타",
+  "마트/편의점": "식비",
+  "뷰티/건강": "의료",
+  통신: "기타",
+  구독: "기타",
+  "?앸퉬": "식비",
+  "留덊듃/?몄쓽??": "식비",
+  "移댄럹": "카페",
+  "?쇳븨": "쇼핑",
+  "援먰넻": "교통",
+  "?섎즺": "의료",
+  "酉고떚/嫄닿컯": "의료",
+  "?듭떊": "기타",
+  "援щ룆": "기타",
+  "湲고?": "기타",
 };
 
-const CATEGORY_ICONS: Record<string, string> = {
-  식비: "🍽️",
-  교통: "🚌",
-  쇼핑: "🛍️",
-  의료: "💊",
-  기타: "🧾",
-};
+function formatWon(value: number) {
+  return `${Math.round(value).toLocaleString()}원`;
+}
 
-const normalizeCategory = (category: string): BreakdownCategory => {
-  if (category === "카페" || category === "마트/편의점") {
-    return "식비";
-  }
-  return BREAKDOWN_CATEGORIES.includes(category as BreakdownCategory)
-    ? (category as BreakdownCategory)
-    : "기타";
-};
+function getMonthLabel(month: string) {
+  const [year, monthValue] = month.split("-");
+  return `${year}년 ${Number(monthValue)}월`;
+}
+
+function getDaysInMonth(month: string) {
+  const [year, monthValue] = month.split("-").map(Number);
+  return new Date(year, monthValue, 0).getDate();
+}
+
+function getCategoryLabel(category: string) {
+  return CATEGORY_LABELS[category] ?? category;
+}
 
 export default function ReceiptScreen() {
   const router = useRouter();
-  const user = useAuthStore((s) => s.user);
-  const { getReceiptsForMonth, getTotalForMonth, getCategoryBreakdown, selectedMonth, fetchReceipts, isLoading } = useReceiptStore();
+  const {
+    fetchReceipts,
+    getCategoryBreakdown,
+    getReceiptsForMonth,
+    getTotalForMonth,
+    isLoading,
+  } = useReceiptStore();
+  const [showAllReceipts, setShowAllReceipts] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
-  const currentMonth = today.slice(0, 7);
+  const today = new Date();
+  const currentMonth = today.toISOString().slice(0, 7);
+  const daysInMonth = getDaysInMonth(currentMonth);
 
   useEffect(() => {
     fetchReceipts(currentMonth);
-  }, [currentMonth]);
+  }, [currentMonth, fetchReceipts]);
+
   const receipts = getReceiptsForMonth(currentMonth);
   const total = getTotalForMonth(currentMonth);
-  const rawBreakdown = getCategoryBreakdown(currentMonth);
-
-  const breakdown = BREAKDOWN_CATEGORIES.map((category) => {
-    const amount = rawBreakdown
-      .filter((item) => normalizeCategory(item.category) === category)
-      .reduce((sum, item) => sum + item.amount, 0);
-    return {
-      category,
-      amount,
-      percent: total > 0 ? Math.round((amount / total) * 100) : 0,
-    };
-  }).filter((item) => item.amount > 0);
-
-  const isPro = user?.plan === "pro";
-  const [showAllReceipts, setShowAllReceipts] = useState(false);
+  const estimatedMonthlySpend =
+    currentMonth === today.toISOString().slice(0, 7) && today.getDate() > 0
+      ? Math.round((total / today.getDate()) * daysInMonth)
+      : total;
 
   const sortedReceipts = [...receipts].sort((a, b) =>
     b.date.localeCompare(a.date),
@@ -80,13 +94,54 @@ export default function ReceiptScreen() {
     ? sortedReceipts
     : sortedReceipts.slice(0, 5);
 
+  const dailyTotals = useMemo(() => {
+    const totals = Array.from({ length: daysInMonth }, (_, index) => ({
+      day: index + 1,
+      amount: 0,
+    }));
+
+    receipts.forEach((receipt) => {
+      const day = Number(receipt.date.slice(8, 10));
+      if (day >= 1 && day <= daysInMonth) {
+        totals[day - 1].amount += receipt.amount;
+      }
+    });
+
+    return totals;
+  }, [daysInMonth, receipts]);
+
+  const trendMax = Math.max(...dailyTotals.map((item) => item.amount), 1);
+  const linePoints = dailyTotals.map((item, index) => {
+    const x = (index / Math.max(daysInMonth - 1, 1)) * CHART_WIDTH;
+    const y = CHART_HEIGHT - (item.amount / trendMax) * (CHART_HEIGHT - 18) - 8;
+    return { ...item, x, y };
+  });
+
+  const categoryBreakdown = useMemo(() => {
+    const grouped = new Map<string, number>();
+
+    getCategoryBreakdown(currentMonth).forEach((item) => {
+      const label = getCategoryLabel(item.category);
+      grouped.set(label, (grouped.get(label) ?? 0) + item.amount);
+    });
+
+    return [...grouped.entries()]
+      .map(([category, amount], index) => ({
+        category,
+        amount,
+        percent: total > 0 ? Math.round((amount / total) * 100) : 0,
+        color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
+      }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [currentMonth, getCategoryBreakdown, total]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>영수증 관리</Text>
-        <Text style={styles.headerMonth}>
-          {currentMonth.replace("-", "년 ")}월
-        </Text>
+        <View>
+          <Text style={styles.headerTitle}>소비 리포트</Text>
+          <Text style={styles.headerSubtitle}>{getMonthLabel(currentMonth)}</Text>
+        </View>
       </View>
 
       <ScrollView
@@ -94,138 +149,198 @@ export default function ReceiptScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* 이번 달 지출 요약 */}
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryLeft}>
-            <Text style={styles.summaryLabel}>이번 달 총 지출</Text>
-            <Text style={styles.summaryAmount}>{total.toLocaleString()}원</Text>
-          </View>
-          <View style={styles.summaryMeta}>
-            <Text style={styles.summaryMetaLabel}>영수증 수</Text>
-            <View style={styles.summaryBadge}>
-              <Text style={styles.summaryBadgeText}>{receipts.length}건</Text>
+        <View style={styles.summaryGrid}>
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryIcon, styles.summaryIconPrimary]}>
+              <Ionicons name="wallet-outline" size={18} color={Colors.primary} />
             </View>
+            <Text style={styles.summaryValue}>{formatWon(total)}</Text>
+            <Text style={styles.summaryLabel}>월별 소비 요약</Text>
+          </View>
+
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryIcon, styles.summaryIconPurple]}>
+              <Ionicons name="receipt-outline" size={18} color={Colors.pro} />
+            </View>
+            <Text style={styles.summaryValue}>{receipts.length}건</Text>
+            <Text style={styles.summaryLabel}>영수증 등록 건수</Text>
+          </View>
+
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryIcon, styles.summaryIconOrange]}>
+              <Ionicons name="sparkles-outline" size={18} color={Colors.warning} />
+            </View>
+            <Text style={styles.summaryValue}>
+              {formatWon(estimatedMonthlySpend)}
+            </Text>
+            <Text style={styles.summaryLabel}>예상 월 지출</Text>
           </View>
         </View>
 
-        {/* 카테고리별 지출 */}
-        {breakdown.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>카테고리별 지출</Text>
-            <View style={styles.breakdownList}>
-              {breakdown.map((item) => (
-                <View key={item.category} style={styles.breakdownItem}>
-                  <View style={styles.breakdownLeft}>
-                    <Text style={styles.catIcon}>
-                      {CATEGORY_ICONS[item.category] ?? "🧾"}
-                    </Text>
-                    <Text style={styles.catLabel}>{item.category}</Text>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{getMonthLabel(currentMonth)} 지출 추이</Text>
+          </View>
+          <View style={styles.lineChartFrame}>
+            <View style={styles.chartGridLine} />
+            <View style={[styles.chartGridLine, styles.chartGridLineMiddle]} />
+            <View style={[styles.chartGridLine, styles.chartGridLineBottom]} />
+            <View style={[styles.lineChart, { width: CHART_WIDTH }]}>
+              {linePoints.slice(0, -1).map((point, index) => {
+                const next = linePoints[index + 1];
+                const dx = next.x - point.x;
+                const dy = next.y - point.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const angle = `${Math.atan2(dy, dx)}rad`;
+
+                return (
+                  <View
+                    key={`${point.day}-${next.day}`}
+                    style={[
+                      styles.lineSegment,
+                      {
+                        width: length,
+                        left: point.x,
+                        top: point.y,
+                        transform: [{ rotateZ: angle }],
+                      },
+                    ]}
+                  />
+                );
+              })}
+              {linePoints
+                .filter((point) => point.amount > 0)
+                .map((point) => (
+                  <View
+                    key={point.day}
+                    style={[
+                      styles.lineDot,
+                      { left: point.x - 4, top: point.y - 4 },
+                    ]}
+                  />
+                ))}
+            </View>
+          </View>
+          <View style={styles.axisRow}>
+            <Text style={styles.axisText}>1일</Text>
+            <Text style={styles.axisText}>15일</Text>
+            <Text style={styles.axisText}>{daysInMonth}일</Text>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>카테고리별 지출</Text>
+          {categoryBreakdown.length === 0 ? (
+            <View style={styles.emptyCompact}>
+              <Text style={styles.emptyText}>카테고리 지출 데이터가 없습니다</Text>
+            </View>
+          ) : (
+            <View style={styles.categoryList}>
+              {categoryBreakdown.map((item) => (
+                <View key={item.category} style={styles.categoryRow}>
+                  <View style={styles.categoryNameRow}>
+                    <View
+                      style={[
+                        styles.categoryDot,
+                        { backgroundColor: item.color },
+                      ]}
+                    />
+                    <Text style={styles.categoryName}>{item.category}</Text>
                   </View>
-                  <View style={styles.breakdownRight}>
-                    <View style={styles.breakdownBar}>
-                      <View
-                        style={[
-                          styles.breakdownBarFill,
-                          {
-                            width: `${item.percent}%` as any,
-                            backgroundColor:
-                              CATEGORY_COLORS[item.category] ?? Colors.gray300,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={styles.catAmount}>
-                      {item.amount.toLocaleString()}원
-                    </Text>
-                    <Text style={styles.catPercent}>{item.percent}%</Text>
+                  <View style={styles.categoryBarTrack}>
+                    <View
+                      style={[
+                        styles.categoryBarFill,
+                        {
+                          width: `${Math.max(item.percent, 4)}%` as any,
+                          backgroundColor: item.color,
+                        },
+                      ]}
+                    />
                   </View>
+                  <Text style={styles.categoryPercent}>{item.percent}%</Text>
+                  <Text style={styles.categoryAmount}>
+                    {formatWon(item.amount)}
+                  </Text>
                 </View>
               ))}
             </View>
-          </View>
-        )}
+          )}
+        </View>
 
-        {/* Pro 소비 리포트 유도 */}
-        {!isPro && (
-          <TouchableOpacity
-            style={styles.proCard}
-            onPress={() => router.push("/pro-promotion" as any)}
-          >
-            <View style={styles.proLeft}>
-              <Text style={styles.proIcon}>🔷</Text>
-              <View>
-                <Text style={styles.proTitle}>AI 소비패턴 분석 (Pro)</Text>
-                <Text style={styles.proDesc}>
-                  월별 리포트 · 카드 추천 · 연간 타임라인
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.pro} />
-          </TouchableOpacity>
-        )}
-
-        {/* 영수증 목록 */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>영수증 목록</Text>
+            <Text style={styles.sectionTitle}>최근 영수증</Text>
             <View style={styles.sectionHeaderRight}>
               <Text style={styles.sectionCount}>{receipts.length}건</Text>
               {receipts.length > 5 ? (
                 <TouchableOpacity
                   style={styles.viewAllBtn}
-                  onPress={() => setShowAllReceipts((prev) => !prev)}
+                  onPress={() => setShowAllReceipts((previous) => !previous)}
                 >
                   <Text style={styles.viewAllBtnText}>
-                    {showAllReceipts ? "닫기" : "전체"}
+                    {showAllReceipts ? "접기" : "전체 보기"}
                   </Text>
                 </TouchableOpacity>
               ) : null}
             </View>
           </View>
+
           {isLoading ? (
             <View style={styles.empty}>
               <ActivityIndicator size="large" color={Colors.primary} />
             </View>
           ) : receipts.length === 0 ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>🧾</Text>
+              <Ionicons
+                name="receipt-outline"
+                size={42}
+                color={Colors.gray300}
+              />
               <Text style={styles.emptyText}>이번 달 영수증이 없습니다</Text>
             </View>
           ) : (
             <View style={styles.receiptList}>
-              {displayedReceipts.map((receipt) => (
-                <TouchableOpacity
-                  key={receipt.id}
-                  style={styles.receiptItem}
-                  onPress={() =>
-                    router.push(`/receipt-detail/${receipt.id}` as any)
-                  }
-                >
-                  <View
-                    style={[
-                      styles.receiptIconWrap,
-                      {
-                        backgroundColor:
-                          CATEGORY_COLORS[normalizeCategory(receipt.category)] ??
-                          Colors.gray200,
-                      },
-                    ]}
+              {displayedReceipts.map((receipt) => {
+                const category = getCategoryLabel(receipt.category);
+                const categoryColor =
+                  categoryBreakdown.find((item) => item.category === category)
+                    ?.color ?? Colors.gray200;
+
+                return (
+                  <TouchableOpacity
+                    key={receipt.id}
+                    style={styles.receiptItem}
+                    onPress={() =>
+                      router.push(`/receipt-detail/${receipt.id}` as any)
+                    }
                   >
-                    <Text style={styles.receiptIcon}>
-                      {CATEGORY_ICONS[receipt.category] ?? "🧾"}
+                    <View
+                      style={[
+                        styles.receiptIconWrap,
+                        { backgroundColor: `${categoryColor}22` },
+                      ]}
+                    >
+                      <Ionicons
+                        name="receipt-outline"
+                        size={20}
+                        color={categoryColor}
+                      />
+                    </View>
+                    <View style={styles.receiptInfo}>
+                      <Text style={styles.receiptStore} numberOfLines={1}>
+                        {receipt.storeName || "이름 없는 영수증"}
+                      </Text>
+                      <Text style={styles.receiptDate}>
+                        {receipt.date} · {category}
+                      </Text>
+                    </View>
+                    <Text style={styles.receiptAmount}>
+                      {formatWon(receipt.amount)}
                     </Text>
-                  </View>
-                  <View style={styles.receiptInfo}>
-                    <Text style={styles.receiptStore} numberOfLines={1}>
-                      {receipt.storeName}
-                    </Text>
-                    <Text style={styles.receiptDate}>{receipt.date}</Text>
-                  </View>
-                  <Text style={styles.receiptAmount}>
-                    {receipt.amount.toLocaleString()}원
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </View>
@@ -234,149 +349,159 @@ export default function ReceiptScreen() {
   );
 }
 
+const cardShadow = Platform.select({
+  ios: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+  },
+  android: { elevation: 2 },
+});
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
   },
-  headerTitle: { fontSize: 22, fontWeight: "700", color: Colors.gray900 },
-  headerMonth: { fontSize: 14, color: Colors.gray500 },
+  headerTitle: { fontSize: 22, fontWeight: "800", color: Colors.gray900 },
+  headerSubtitle: { marginTop: 2, fontSize: 13, color: Colors.gray500 },
   scroll: { flex: 1 },
   scrollContent: {
     padding: Spacing.lg,
     gap: Spacing.lg,
     paddingBottom: TAB_BAR_SPACE,
   },
-
+  summaryGrid: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
   summaryCard: {
+    flex: 1,
+    minHeight: 112,
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: Spacing.md,
+    padding: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.gray100,
+    justifyContent: "space-between",
+    ...cardShadow,
   },
-  summaryLeft: { flex: 1 },
-  summaryLabel: {
-    fontSize: 13,
-    color: Colors.gray500,
-    marginBottom: Spacing.xs,
+  summaryIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.md,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  summaryAmount: { fontSize: 28, fontWeight: "800", color: Colors.gray900 },
-  summaryMeta: { alignItems: "flex-end" },
-  summaryMetaLabel: {
-    fontSize: 12,
-    color: Colors.gray500,
-    marginBottom: Spacing.xs,
-  },
-  summaryBadge: {
-    backgroundColor: Colors.primary,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-  },
-  summaryBadgeText: { fontSize: 13, fontWeight: "700", color: Colors.white },
-
+  summaryIconPrimary: { backgroundColor: Colors.primaryLight },
+  summaryIconPurple: { backgroundColor: Colors.proLight },
+  summaryIconOrange: { backgroundColor: Colors.warningLight },
+  summaryValue: { fontSize: 17, fontWeight: "800", color: Colors.gray900 },
+  summaryLabel: { fontSize: 11, lineHeight: 15, color: Colors.gray600 },
   section: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     padding: Spacing.lg,
     gap: Spacing.md,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
+    ...cardShadow,
   },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: Spacing.md,
   },
   sectionHeaderRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
   },
-  sectionTitle: { fontSize: 15, fontWeight: "700", color: Colors.gray900 },
+  sectionTitle: { fontSize: 15, fontWeight: "800", color: Colors.gray900 },
   sectionCount: { fontSize: 13, color: Colors.gray500 },
-  viewAllBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
+  lineChartFrame: {
+    height: CHART_HEIGHT,
+    overflow: "hidden",
+    justifyContent: "center",
+  },
+  lineChart: {
+    height: CHART_HEIGHT,
+    alignSelf: "center",
+    position: "relative",
+  },
+  chartGridLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 12,
+    height: 1,
+    backgroundColor: Colors.gray100,
+  },
+  chartGridLineMiddle: { top: CHART_HEIGHT / 2 },
+  chartGridLineBottom: { top: CHART_HEIGHT - 12 },
+  lineSegment: {
+    position: "absolute",
+    height: 2,
+    backgroundColor: Colors.primary,
     borderRadius: Radius.full,
+    transformOrigin: "left center" as any,
+  },
+  lineDot: {
+    position: "absolute",
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: Colors.primary,
   },
-  viewAllBtnText: { fontSize: 13, fontWeight: "700", color: Colors.white },
-
-  breakdownList: { gap: Spacing.sm },
-  breakdownItem: {
+  axisRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  axisText: { fontSize: 11, color: Colors.gray400 },
+  categoryList: { gap: Spacing.md },
+  categoryRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
   },
-  breakdownLeft: {
+  categoryNameRow: {
+    width: 68,
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.xs,
-    width: 100,
+    gap: 6,
   },
-  catIcon: { fontSize: 18 },
-  catLabel: { fontSize: 13, color: Colors.gray700, fontWeight: "500" },
-  breakdownRight: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  breakdownBar: {
+  categoryDot: { width: 8, height: 8, borderRadius: 4 },
+  categoryName: { fontSize: 13, fontWeight: "700", color: Colors.gray700 },
+  categoryBarTrack: {
     flex: 1,
     height: 8,
-    backgroundColor: Colors.gray100,
     borderRadius: Radius.full,
+    backgroundColor: Colors.gray100,
     overflow: "hidden",
   },
-  breakdownBarFill: { height: "100%", borderRadius: Radius.full },
-  catAmount: {
+  categoryBarFill: { height: "100%", borderRadius: Radius.full },
+  categoryPercent: {
+    width: 36,
     fontSize: 12,
-    color: Colors.gray700,
-    fontWeight: "600",
-    width: 70,
+    color: Colors.gray500,
     textAlign: "right",
   },
-  catPercent: {
-    fontSize: 11,
-    color: Colors.gray400,
-    width: 32,
+  categoryAmount: {
+    width: 74,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.gray900,
     textAlign: "right",
   },
-
-  proCard: {
-    backgroundColor: Colors.proLight,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: Colors.pro,
+  viewAllBtn: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryLight,
   },
-  proLeft: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
-  proIcon: { fontSize: 24 },
-  proTitle: { fontSize: 14, fontWeight: "700", color: Colors.pro },
-  proDesc: { fontSize: 12, color: Colors.pro, opacity: 0.8 },
-
+  viewAllBtnText: { fontSize: 12, fontWeight: "800", color: Colors.primary },
   receiptList: { gap: Spacing.xs },
   receiptItem: {
     flexDirection: "row",
@@ -391,13 +516,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  receiptIcon: { fontSize: 20 },
-  receiptInfo: { flex: 1 },
-  receiptStore: { fontSize: 14, fontWeight: "600", color: Colors.gray800 },
-  receiptDate: { fontSize: 12, color: Colors.gray400 },
-  receiptAmount: { fontSize: 14, fontWeight: "700", color: Colors.gray900 },
-
+  receiptInfo: { flex: 1, minWidth: 0 },
+  receiptStore: { fontSize: 14, fontWeight: "700", color: Colors.gray800 },
+  receiptDate: { marginTop: 2, fontSize: 12, color: Colors.gray400 },
+  receiptAmount: { fontSize: 14, fontWeight: "800", color: Colors.gray900 },
   empty: { alignItems: "center", padding: Spacing.xl, gap: Spacing.sm },
-  emptyIcon: { fontSize: 36 },
-  emptyText: { fontSize: 14, color: Colors.gray400 },
+  emptyCompact: { paddingVertical: Spacing.md },
+  emptyText: { fontSize: 14, color: Colors.gray400, textAlign: "center" },
 });
