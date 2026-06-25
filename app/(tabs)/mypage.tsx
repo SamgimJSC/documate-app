@@ -585,6 +585,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.md,
   },
+  avatarWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   profileInfo: {
     flex: 1,
     gap: Spacing.xs,
