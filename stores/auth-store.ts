@@ -114,8 +114,6 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     });
   },
 
-  checkEmailExists: (email) => REGISTERED_EMAILS.has(email),
-
   // TODO [배포 전]: GET /auth/check-email?email= API 호출로 교체 (클라이언트 Set 제거)
   checkEmailExists: (email) => REGISTERED_EMAILS.has(email),
 
