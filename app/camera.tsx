@@ -4,9 +4,8 @@ import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  ActivityIndicator,
   Alert,
   StyleSheet,
   Text,
@@ -14,40 +13,11 @@ import {
   View,
 } from 'react-native';
 
-type UploadState = 'idle' | 'uploading' | 'analyzing';
-
 export default function CameraScreen() {
   const router = useRouter();
   const addDocument = useDocStore((s) => s.addDocument);
-  const [state, setState] = useState<UploadState>('idle');
 
   const close = () => router.back();
-
-  // TODO: OCR 연동 시 이 함수를 CLOVA API 호출로 교체
-  const simulateAnalysis = async (fileUri?: string) => {
-    setState('uploading');
-    await new Promise((r) => setTimeout(r, 800));
-    setState('analyzing');
-    await new Promise((r) => setTimeout(r, 1200));
-
-    const today = new Date().toISOString().split('T')[0];
-    const newDoc: Document = {
-      id: `doc-${Date.now()}`,
-      title: '새로운 문서',
-      category: '기타',
-      imageUri: fileUri,
-      uploadedAt: today,
-      tags: [],
-      isFavorite: false,
-      status: 'active',
-      extractedData: {},
-      notifications: [],
-    };
-    addDocument(newDoc);
-    Alert.alert('AI 분석 완료', '문서가 분석되어 캐비닛에 저장되었습니다.', [
-      { text: '확인', onPress: () => router.back() },
-    ]);
-  };
 
   // 선택한 사진 uri들을 업로드 진행 화면으로 전달
   const goToProgress = (uriList: string[]) => {
@@ -93,25 +63,6 @@ export default function CameraScreen() {
     addDocument(newDoc);
     router.replace(`/document/edit/${id}?manual=1`);
   };
-
-  const isLoading = state === 'uploading' || state === 'analyzing';
-
-  if (isLoading) {
-    return (
-      <View style={styles.root}>
-        <View style={styles.backdrop} />
-        <View style={styles.loadingCard}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingTitle}>
-            {state === 'uploading' ? '업로드 중...' : 'AI가 문서를 분석 중...'}
-          </Text>
-          {state === 'analyzing' && (
-            <Text style={styles.loadingDesc}>OCR로 텍스트를 인식하고 분류하고 있어요</Text>
-          )}
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.root}>
@@ -195,14 +146,4 @@ const styles = StyleSheet.create({
   optionDesc: { fontSize: 12, color: Colors.gray500, marginTop: 2 },
   cancel: { alignItems: 'center', paddingVertical: Spacing.md, marginTop: Spacing.xs },
   cancelText: { fontSize: 15, fontWeight: '600', color: Colors.gray500 },
-  loadingCard: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl,
-    borderTopRightRadius: Radius.xl,
-    padding: Spacing.xl,
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  loadingTitle: { fontSize: 18, fontWeight: '600', color: Colors.gray800 },
-  loadingDesc: { fontSize: 14, color: Colors.gray500 },
 });

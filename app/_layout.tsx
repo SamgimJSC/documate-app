@@ -1,31 +1,32 @@
 import { NotificationBanner } from "@/components/common/NotificationBanner";
+import { Toast } from "@/components/common/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import {
-  getFcmToken,
-  getInitialNotificationData,
-  listenForegroundMessages,
-  onNotificationOpenedApp,
-  registerBackgroundMessageHandler,
-  registerFcmTokenToServer,
+    getFcmToken,
+    getInitialNotificationData,
+    listenForegroundMessages,
+    onNotificationOpenedApp,
+    registerBackgroundMessageHandler,
+    registerFcmTokenToServer,
 } from "@/services/firebaseMessaging";
 import {
-  registerNotifications,
-  setupNotificationHandler,
+    registerNotifications,
+    setupNotificationHandler,
 } from "@/services/notifications";
 import { useAuthStore } from "@/stores/auth-store";
 import { useNotificationBannerStore } from "@/stores/notification-banner-store";
 import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
+    DarkTheme,
+    DefaultTheme,
+    ThemeProvider,
 } from "@react-navigation/native";
 import * as Notifications from "expo-notifications";
 import {
-  router,
-  Stack,
-  useRootNavigationState,
-  useRouter,
-  useSegments,
+    router,
+    Stack,
+    useRootNavigationState,
+    useRouter,
+    useSegments,
 } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef } from "react";
@@ -199,6 +200,7 @@ export default function RootLayout() {
         <Stack.Screen name="pro-promotion" options={{ headerShown: false }} />
       </Stack>
       <NotificationBanner />
+      <Toast />
       <StatusBar style="auto" />
     </ThemeProvider>
   );
