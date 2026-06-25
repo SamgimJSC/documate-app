@@ -1,9 +1,9 @@
-import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
-import { useAuthStore } from '@/stores/auth-store';
-import { useReceiptStore } from '@/stores/receipt-store';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
+import { useAuthStore } from "@/stores/auth-store";
+import { useReceiptStore } from "@/stores/receipt-store";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -12,29 +12,36 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-const CATEGORY_COLORS: Record<string, string> = {
-  '식비': '#FF6B6B',
-  '마트/편의점': '#4ECDC4',
-  '카페': '#45B7D1',
-  '뷰티/건강': '#FFA07A',
-  '교통': '#98D8C8',
-  '통신': '#B8A9C9',
-  '구독': '#FFEAA7',
-  '기타': '#DFE6E9',
+const BREAKDOWN_CATEGORIES = ["식비", "교통", "쇼핑", "의료", "기타"] as const;
+
+type BreakdownCategory = (typeof BREAKDOWN_CATEGORIES)[number];
+
+const CATEGORY_COLORS: Record<BreakdownCategory, string> = {
+  식비: "#FF6B6B",
+  교통: "#98D8C8",
+  쇼핑: "#4ECDC4",
+  의료: "#F7B801",
+  기타: "#DFE6E9",
 };
 
 const CATEGORY_ICONS: Record<string, string> = {
-  '식비': '🍽️',
-  '마트/편의점': '🛒',
-  '카페': '☕',
-  '뷰티/건강': '💄',
-  '교통': '🚌',
-  '통신': '📱',
-  '구독': '📺',
-  '기타': '🧾',
+  식비: "🍽️",
+  교통: "🚌",
+  쇼핑: "🛍️",
+  의료: "💊",
+  기타: "🧾",
+};
+
+const normalizeCategory = (category: string): BreakdownCategory => {
+  if (category === "카페" || category === "마트/편의점") {
+    return "식비";
+  }
+  return BREAKDOWN_CATEGORIES.includes(category as BreakdownCategory)
+    ? (category as BreakdownCategory)
+    : "기타";
 };
 
 export default function ReceiptScreen() {
@@ -42,7 +49,7 @@ export default function ReceiptScreen() {
   const user = useAuthStore((s) => s.user);
   const { getReceiptsForMonth, getTotalForMonth, getCategoryBreakdown, selectedMonth, fetchReceipts, isLoading } = useReceiptStore();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split("T")[0];
   const currentMonth = today.slice(0, 7);
 
   useEffect(() => {
@@ -50,23 +57,55 @@ export default function ReceiptScreen() {
   }, [currentMonth]);
   const receipts = getReceiptsForMonth(currentMonth);
   const total = getTotalForMonth(currentMonth);
-  const breakdown = getCategoryBreakdown(currentMonth);
+  const rawBreakdown = getCategoryBreakdown(currentMonth);
 
-  const isPro = user?.plan === 'pro';
+  const breakdown = BREAKDOWN_CATEGORIES.map((category) => {
+    const amount = rawBreakdown
+      .filter((item) => normalizeCategory(item.category) === category)
+      .reduce((sum, item) => sum + item.amount, 0);
+    return {
+      category,
+      amount,
+      percent: total > 0 ? Math.round((amount / total) * 100) : 0,
+    };
+  }).filter((item) => item.amount > 0);
+
+  const isPro = user?.plan === "pro";
+  const [showAllReceipts, setShowAllReceipts] = useState(false);
+
+  const sortedReceipts = [...receipts].sort((a, b) =>
+    b.date.localeCompare(a.date),
+  );
+  const displayedReceipts = showAllReceipts
+    ? sortedReceipts
+    : sortedReceipts.slice(0, 5);
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>영수증 관리</Text>
-        <Text style={styles.headerMonth}>{currentMonth.replace('-', '년 ')}월</Text>
+        <Text style={styles.headerMonth}>
+          {currentMonth.replace("-", "년 ")}월
+        </Text>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* 이번 달 지출 요약 */}
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>이번 달 총 지출</Text>
-          <Text style={styles.summaryAmount}>{total.toLocaleString()}원</Text>
-          <Text style={styles.summaryCount}>영수증 {receipts.length}건</Text>
+          <View style={styles.summaryLeft}>
+            <Text style={styles.summaryLabel}>이번 달 총 지출</Text>
+            <Text style={styles.summaryAmount}>{total.toLocaleString()}원</Text>
+          </View>
+          <View style={styles.summaryMeta}>
+            <Text style={styles.summaryMetaLabel}>영수증 수</Text>
+            <View style={styles.summaryBadge}>
+              <Text style={styles.summaryBadgeText}>{receipts.length}건</Text>
+            </View>
+          </View>
         </View>
 
         {/* 카테고리별 지출 */}
@@ -77,7 +116,9 @@ export default function ReceiptScreen() {
               {breakdown.map((item) => (
                 <View key={item.category} style={styles.breakdownItem}>
                   <View style={styles.breakdownLeft}>
-                    <Text style={styles.catIcon}>{CATEGORY_ICONS[item.category] ?? '🧾'}</Text>
+                    <Text style={styles.catIcon}>
+                      {CATEGORY_ICONS[item.category] ?? "🧾"}
+                    </Text>
                     <Text style={styles.catLabel}>{item.category}</Text>
                   </View>
                   <View style={styles.breakdownRight}>
@@ -87,12 +128,15 @@ export default function ReceiptScreen() {
                           styles.breakdownBarFill,
                           {
                             width: `${item.percent}%` as any,
-                            backgroundColor: CATEGORY_COLORS[item.category] ?? Colors.gray300,
+                            backgroundColor:
+                              CATEGORY_COLORS[item.category] ?? Colors.gray300,
                           },
                         ]}
                       />
                     </View>
-                    <Text style={styles.catAmount}>{item.amount.toLocaleString()}원</Text>
+                    <Text style={styles.catAmount}>
+                      {item.amount.toLocaleString()}원
+                    </Text>
                     <Text style={styles.catPercent}>{item.percent}%</Text>
                   </View>
                 </View>
@@ -105,12 +149,15 @@ export default function ReceiptScreen() {
         {!isPro && (
           <TouchableOpacity
             style={styles.proCard}
-            onPress={() => router.push('/pro-promotion' as any)}>
+            onPress={() => router.push("/pro-promotion" as any)}
+          >
             <View style={styles.proLeft}>
               <Text style={styles.proIcon}>🔷</Text>
               <View>
                 <Text style={styles.proTitle}>AI 소비패턴 분석 (Pro)</Text>
-                <Text style={styles.proDesc}>월별 리포트 · 카드 추천 · 연간 타임라인</Text>
+                <Text style={styles.proDesc}>
+                  월별 리포트 · 카드 추천 · 연간 타임라인
+                </Text>
               </View>
             </View>
             <Ionicons name="chevron-forward" size={20} color={Colors.pro} />
@@ -121,7 +168,19 @@ export default function ReceiptScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>영수증 목록</Text>
-            <Text style={styles.sectionCount}>{receipts.length}건</Text>
+            <View style={styles.sectionHeaderRight}>
+              <Text style={styles.sectionCount}>{receipts.length}건</Text>
+              {receipts.length > 5 ? (
+                <TouchableOpacity
+                  style={styles.viewAllBtn}
+                  onPress={() => setShowAllReceipts((prev) => !prev)}
+                >
+                  <Text style={styles.viewAllBtnText}>
+                    {showAllReceipts ? "닫기" : "전체"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
           {isLoading ? (
             <View style={styles.empty}>
@@ -134,23 +193,39 @@ export default function ReceiptScreen() {
             </View>
           ) : (
             <View style={styles.receiptList}>
-              {[...receipts]
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .map((receipt) => (
-                  <TouchableOpacity
-                    key={receipt.id}
-                    style={styles.receiptItem}
-                    onPress={() => router.push(`/receipt-detail/${receipt.id}` as any)}>
-                    <View style={[styles.receiptIconWrap, { backgroundColor: CATEGORY_COLORS[receipt.category] ?? Colors.gray200 }]}>
-                      <Text style={styles.receiptIcon}>{CATEGORY_ICONS[receipt.category] ?? '🧾'}</Text>
-                    </View>
-                    <View style={styles.receiptInfo}>
-                      <Text style={styles.receiptStore} numberOfLines={1}>{receipt.storeName}</Text>
-                      <Text style={styles.receiptDate}>{receipt.date}</Text>
-                    </View>
-                    <Text style={styles.receiptAmount}>{receipt.amount.toLocaleString()}원</Text>
-                  </TouchableOpacity>
-                ))}
+              {displayedReceipts.map((receipt) => (
+                <TouchableOpacity
+                  key={receipt.id}
+                  style={styles.receiptItem}
+                  onPress={() =>
+                    router.push(`/receipt-detail/${receipt.id}` as any)
+                  }
+                >
+                  <View
+                    style={[
+                      styles.receiptIconWrap,
+                      {
+                        backgroundColor:
+                          CATEGORY_COLORS[normalizeCategory(receipt.category)] ??
+                          Colors.gray200,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.receiptIcon}>
+                      {CATEGORY_ICONS[receipt.category] ?? "🧾"}
+                    </Text>
+                  </View>
+                  <View style={styles.receiptInfo}>
+                    <Text style={styles.receiptStore} numberOfLines={1}>
+                      {receipt.storeName}
+                    </Text>
+                    <Text style={styles.receiptDate}>{receipt.date}</Text>
+                  </View>
+                  <Text style={styles.receiptAmount}>
+                    {receipt.amount.toLocaleString()}원
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           )}
         </View>
@@ -162,28 +237,53 @@ export default function ReceiptScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
   },
-  headerTitle: { fontSize: 22, fontWeight: '700', color: Colors.gray900 },
+  headerTitle: { fontSize: 22, fontWeight: "700", color: Colors.gray900 },
   headerMonth: { fontSize: 14, color: Colors.gray500 },
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg, gap: Spacing.lg, paddingBottom: TAB_BAR_SPACE },
+  scrollContent: {
+    padding: Spacing.lg,
+    gap: Spacing.lg,
+    paddingBottom: TAB_BAR_SPACE,
+  },
 
   summaryCard: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.white,
     borderRadius: Radius.lg,
-    padding: Spacing.xl,
-    alignItems: 'center',
-    gap: Spacing.xs,
+    padding: Spacing.lg,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.gray100,
   },
-  summaryLabel: { fontSize: 14, color: 'rgba(255,255,255,0.8)' },
-  summaryAmount: { fontSize: 32, fontWeight: '700', color: Colors.white },
-  summaryCount: { fontSize: 13, color: 'rgba(255,255,255,0.7)' },
+  summaryLeft: { flex: 1 },
+  summaryLabel: {
+    fontSize: 13,
+    color: Colors.gray500,
+    marginBottom: Spacing.xs,
+  },
+  summaryAmount: { fontSize: 28, fontWeight: "800", color: Colors.gray900 },
+  summaryMeta: { alignItems: "flex-end" },
+  summaryMetaLabel: {
+    fontSize: 12,
+    color: Colors.gray500,
+    marginBottom: Spacing.xs,
+  },
+  summaryBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+  },
+  summaryBadgeText: { fontSize: 13, fontWeight: "700", color: Colors.white },
 
   section: {
     backgroundColor: Colors.white,
@@ -191,50 +291,113 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     gap: Spacing.md,
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
       android: { elevation: 2 },
     }),
   },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.gray900 },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sectionHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  sectionTitle: { fontSize: 15, fontWeight: "700", color: Colors.gray900 },
   sectionCount: { fontSize: 13, color: Colors.gray500 },
+  viewAllBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+  },
+  viewAllBtnText: { fontSize: 13, fontWeight: "700", color: Colors.white },
 
   breakdownList: { gap: Spacing.sm },
-  breakdownItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  breakdownLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, width: 100 },
+  breakdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  breakdownLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    width: 100,
+  },
   catIcon: { fontSize: 18 },
-  catLabel: { fontSize: 13, color: Colors.gray700, fontWeight: '500' },
-  breakdownRight: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  breakdownBar: { flex: 1, height: 8, backgroundColor: Colors.gray100, borderRadius: Radius.full, overflow: 'hidden' },
-  breakdownBarFill: { height: '100%', borderRadius: Radius.full },
-  catAmount: { fontSize: 12, color: Colors.gray700, fontWeight: '600', width: 70, textAlign: 'right' },
-  catPercent: { fontSize: 11, color: Colors.gray400, width: 32, textAlign: 'right' },
+  catLabel: { fontSize: 13, color: Colors.gray700, fontWeight: "500" },
+  breakdownRight: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  breakdownBar: {
+    flex: 1,
+    height: 8,
+    backgroundColor: Colors.gray100,
+    borderRadius: Radius.full,
+    overflow: "hidden",
+  },
+  breakdownBarFill: { height: "100%", borderRadius: Radius.full },
+  catAmount: {
+    fontSize: 12,
+    color: Colors.gray700,
+    fontWeight: "600",
+    width: 70,
+    textAlign: "right",
+  },
+  catPercent: {
+    fontSize: 11,
+    color: Colors.gray400,
+    width: 32,
+    textAlign: "right",
+  },
 
   proCard: {
     backgroundColor: Colors.proLight,
     borderRadius: Radius.lg,
     padding: Spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderWidth: 1,
     borderColor: Colors.pro,
   },
-  proLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  proLeft: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
   proIcon: { fontSize: 24 },
-  proTitle: { fontSize: 14, fontWeight: '700', color: Colors.pro },
+  proTitle: { fontSize: 14, fontWeight: "700", color: Colors.pro },
   proDesc: { fontSize: 12, color: Colors.pro, opacity: 0.8 },
 
   receiptList: { gap: Spacing.xs },
-  receiptItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xs },
-  receiptIconWrap: { width: 40, height: 40, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  receiptItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  receiptIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   receiptIcon: { fontSize: 20 },
   receiptInfo: { flex: 1 },
-  receiptStore: { fontSize: 14, fontWeight: '600', color: Colors.gray800 },
+  receiptStore: { fontSize: 14, fontWeight: "600", color: Colors.gray800 },
   receiptDate: { fontSize: 12, color: Colors.gray400 },
-  receiptAmount: { fontSize: 14, fontWeight: '700', color: Colors.gray900 },
+  receiptAmount: { fontSize: 14, fontWeight: "700", color: Colors.gray900 },
 
-  empty: { alignItems: 'center', padding: Spacing.xl, gap: Spacing.sm },
+  empty: { alignItems: "center", padding: Spacing.xl, gap: Spacing.sm },
   emptyIcon: { fontSize: 36 },
   emptyText: { fontSize: 14, color: Colors.gray400 },
 });
