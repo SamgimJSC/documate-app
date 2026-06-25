@@ -3,6 +3,8 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import { updateDocument as apiUpdateDocument } from '@/services/document';
 import { cancelNotification, createDocumentAlert, scheduleExpiryNotification } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
+import { showToast } from '@/stores/toast-store';
+import { getErrorMessage } from '@/utils/error';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -60,7 +62,7 @@ function formatDateInput(text: string): string {
 export default function DocumentEditScreen() {
   const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
   const router = useRouter();
-  const { documents, categories, updateDocument, removeDocument } = useDocStore();
+  const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
   const isManual = manual === '1'; // 수기 등록으로 들어온 경우
@@ -85,6 +87,7 @@ export default function DocumentEditScreen() {
   const [notiDays, setNotiDays] = useState<number | null>(initialNotiDays);
   const [notiMenuOpen, setNotiMenuOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   if (!doc) {
     return (
@@ -173,18 +176,36 @@ export default function DocumentEditScreen() {
       imageUri,
     });
 
-    // 서버 동기화 (로컬 임시 문서가 아닌 경우)
-    if (!doc.id.startsWith('doc-')) {
-      try {
-        const matchedCat = categories.find((c) => c.name === category);
+    // 서버에 반영할 때 사용할 실제 문서 id (생성 성공 시 진짜 id로 교체됨)
+    let serverId = doc.id;
+    const isLocalDraft = doc.id.startsWith('doc-');
+    const matchedCat = categories.find((c) => c.name === category);
+
+    try {
+      if (isLocalDraft) {
+        // 수기 등록 → 서버에 새 문서 생성
+        // fileUrl/fileName/fileType은 사진 없는 수기 문서 기준 placeholder.
+        // (사진이 있으면 아래 upload-progress 흐름에서 별도 업로드로 채워짐)
+        const newId = await createDocumentOnServer({
+          title: title.trim(),
+          fileUrl: '',
+          fileName: `${title.trim() || 'document'}.manual`,
+          fileType: 'PDF',
+          expiryDate: expiryDate.trim() || undefined,
+          ocrText: notes.trim() || undefined,
+          ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
+        });
+        // 로컬 임시 id를 서버가 준 진짜 id로 교체
+        replaceDocumentId(doc.id, newId);
+        serverId = newId;
+      } else {
+        // 기존 문서 → 수정
         await apiUpdateDocument(doc.id, {
           title: title.trim(),
           expiryDate: expiryDate.trim() || undefined,
           ocrText: notes.trim() || undefined,
           ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
         });
-      } catch (e) {
-        console.error('문서 수정 API 실패:', e);
       }
 
       // 서버 알림 생성 (만료일 + 알림 시점이 모두 설정된 경우)
@@ -192,7 +213,7 @@ export default function DocumentEditScreen() {
         try {
           const option = NOTI_OPTIONS.find((o) => o.days === notiDays);
           const notiDate = subtractDays(expiryDate.trim(), notiDays);
-          await createDocumentAlert(doc.id, {
+          await createDocumentAlert(serverId, {
             notify_date: notiDate,
             reason: option ? `${option.label} 알림` : '만료 알림',
             channel_app_push: true,
@@ -203,22 +224,33 @@ export default function DocumentEditScreen() {
           console.log('서버 알림 등록 실패:', e);
         }
       }
+    } catch (e) {
+      console.error('문서 저장 API 실패:', e);
+      // 생성 실패 시: 서버에 문서가 안 만들어졌으므로 사용자에게 알리고 중단
+      if (isLocalDraft) {
+        showToast(getErrorMessage(e), 'error');
+        return;
+      }
+      // 수정 실패: 로컬 반영은 됐지만 서버 반영 실패 → 가볍게 안내만 (화면 이동은 진행)
+      showToast(getErrorMessage(e), 'error');
     }
 
     // 수기 등록이고 사진이 있으면 업로드 진행 화면을 거쳐 상세로
     if (isManual && imageUri) {
       router.replace({
         pathname: '/upload-progress',
-        params: { uris: JSON.stringify([imageUri]), manual: '1', docId: doc.id },
+        params: { uris: JSON.stringify([imageUri]), manual: '1', docId: serverId },
       });
       return;
     }
 
     // 그 외에는 바로 상세 페이지로
-    router.replace(`/document/${doc.id}`);
+    router.replace(`/document/${serverId}`);
   };
 
   const handleSave = async () => {
+    if (saving) return; // 중복 저장 방지
+
     // 제목은 비어 있으면 안 됨
     if (!title.trim()) {
       Alert.alert('입력 오류', '제목을 입력해주세요.');
@@ -240,7 +272,17 @@ export default function DocumentEditScreen() {
           `설정한 알림 날짜(${notiDate})가 이미 지났어요. 다시 한 번 확인하시겠습니까?`,
           [
             { text: '수정', style: 'cancel' }, // 저장 안 하고 화면에 머무름 (입력값 유지)
-            { text: '이대로 완료', onPress: () => commitSave() },
+            {
+              text: '이대로 완료',
+              onPress: async () => {
+                setSaving(true);
+                try {
+                  await commitSave();
+                } finally {
+                  setSaving(false);
+                }
+              },
+            },
           ]
         );
         return;
@@ -248,7 +290,12 @@ export default function DocumentEditScreen() {
     }
 
     // 날짜 문제 없으면 바로 저장
-    await commitSave();
+    setSaving(true);
+    try {
+      await commitSave();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -258,8 +305,8 @@ export default function DocumentEditScreen() {
           <Ionicons name="close" size={24} color={Colors.gray700} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{isManual ? '문서 등록' : '문서 수정'}</Text>
-        <TouchableOpacity onPress={handleSave} style={styles.saveBtn}>
-          <Text style={styles.saveBtnText}>저장</Text>
+        <TouchableOpacity onPress={handleSave} style={[styles.saveBtn, saving && styles.saveBtnDisabled]} disabled={saving}>
+          <Text style={styles.saveBtnText}>{saving ? '저장 중...' : '저장'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -470,6 +517,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: Colors.primary,
   },
+  saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 
   scroll: { flex: 1 },
