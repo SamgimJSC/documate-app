@@ -1,7 +1,6 @@
 import { Platform } from "react-native";
 
 export const Colors = {
-  // Brand
   primary: "#5B9D99",
   primaryDark: "#3E7773",
   primarySoft: "#8BBCB9",
@@ -9,22 +8,17 @@ export const Colors = {
   primaryLight: "#EDF7F6",
   chipBg: "#F2FBF9",
 
-  // UI
   background: "#F7F9FB",
   backgroundCool: "#F8FAFC",
   surface: "#FFFFFF",
   border: "#E2E8F0",
 
-  // Text
   text: "#223046",
   textSub: "#3D4B63",
   muted: "#657084",
-
-  // CTA / Dark
-  dark: "#172238",
+  darkText: "#172238",
   darkSub: "#D7E3EA",
 
-  // Semantic
   success: "#2E7D32",
   successLight: "#E8F5E9",
   warning: "#E65100",
@@ -32,10 +26,11 @@ export const Colors = {
   error: "#C62828",
   errorLight: "#FFEBEE",
 
-  // Base
+  pro: "#7C3AED",
+  proLight: "#F3E8FF",
+
   white: "#FFFFFF",
 
-  // Gray scale
   gray50: "#F9FAFB",
   gray100: "#F3F4F6",
   gray200: "#E5E7EB",
@@ -47,7 +42,6 @@ export const Colors = {
   gray800: "#1F2937",
   gray900: "#111827",
 
-  // Chart
   chart: {
     식비: "#5B9D99",
     카페: "#C49A6C",

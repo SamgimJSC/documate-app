@@ -1,18 +1,10 @@
 import { Badge } from "@/components/common/badge";
-import { DocumentCategory, MOCK_DOCUMENTS } from "@/constants/mock-data";
+import { DocumentCategory } from "@/constants/mock-data";
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
 import { useDocStore } from "@/stores/doc-store";
-import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { Badge } from '@/components/common/badge';
-import { DocumentCategory } from '@/constants/mock-data';
-import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
-import { useDocStore } from '@/stores/doc-store';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -25,7 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const CATEGORIES: (DocumentCategory | "전체")[] = [
+const FALLBACK_CATEGORIES: (DocumentCategory | "전체")[] = [
   "전체",
   "계약서",
   "보증서",
@@ -33,8 +25,6 @@ const CATEGORIES: (DocumentCategory | "전체")[] = [
   "보험서류",
   "기타",
 ];
-// 서버 카테고리 로드 전 fallback
-const FALLBACK_CATEGORIES: (DocumentCategory | '전체')[] = ['전체', '계약서', '보증서', '처방전', '보험서류', '기타'];
 
 const CATEGORY_ICONS: Record<string, string> = {
   계약서: "📄",
@@ -44,91 +34,77 @@ const CATEGORY_ICONS: Record<string, string> = {
   기타: "📁",
 };
 
+const SORT_LABELS = {
+  recent: "최신순",
+  name: "이름순",
+} as const;
+
+type SortBy = keyof typeof SORT_LABELS;
+
 export default function CabinetScreen() {
   const router = useRouter();
   const {
+    categories,
+    fetchCategories,
+    fetchDocuments,
     getFilteredDocuments,
+    isLoading,
+    searchQuery,
     setSearchQuery,
     setSelectedCategory,
-    searchQuery,
-    setDocument,
-    selectedCategory,
     toggleFavorite,
   } = useDocStore();
-  const [catFilter, setCatFilter] = useState<DocumentCategory | "전체">("전체");
-  const { getFilteredDocuments, setSearchQuery, setSelectedCategory, searchQuery, selectedCategory, toggleFavorite, fetchDocuments, fetchCategories, categories, isLoading } = useDocStore();
-  const [catFilter, setCatFilter] = useState<DocumentCategory | '전체'>('전체');
-  // 정렬 방식: 'recent'=최신순(기본), 'name'=이름순
-  const [sortBy, setSortBy] = useState<"recent" | "name">("recent");
-  // 정렬 드롭다운 열림 여부
+
+  const [catFilter, setCatFilter] =
+    useState<DocumentCategory | "전체">("전체");
+  const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
+  useEffect(() => {
+    fetchDocuments();
+    fetchCategories();
+  }, [fetchDocuments, fetchCategories]);
+
+  const categoryTabs: (DocumentCategory | "전체")[] =
+    categories.length > 0
+      ? ["전체", ...(categories.map((category) => category.name) as DocumentCategory[])]
+      : FALLBACK_CATEGORIES;
 
   const handleCatChange = (cat: DocumentCategory | "전체") => {
     setCatFilter(cat);
     setSelectedCategory(cat === "전체" ? null : cat);
   };
 
-  // 서버에서 카테고리 목록 구성 (없으면 FALLBACK 사용)
-  const categoryTabs: (DocumentCategory | '전체')[] =
-    categories.length > 0
-      ? ['전체', ...(categories.map((c) => c.name) as DocumentCategory[])]
-      : FALLBACK_CATEGORIES;
-
-  useEffect(() => {
-    fetchDocuments();
-    fetchCategories();
-  }, []);
-
-  // 카테고리/검색 필터 결과
-  let docs = getFilteredDocuments();
-
-  useEffect(() => {
-    axiosInstance //
-      .get("/users")
-      .then((res) => res.data)
-      .then((data) => {
-        console.log(data);
-
-        setDocument(MOCK_DOCUMENTS);
-      })
-      .catch(console.error);
-  }, []);
-
-  // 정렬 적용
-  docs = [...docs].sort((a, b) => {
-    if (sortBy === "name") {
-      // 이름순: 제목 가나다순 (한글 정렬)
-      return a.title.localeCompare(b.title, "ko");
-    }
-    // 최신순(기본): 업로드 날짜 내림차순
-    return b.uploadedAt.localeCompare(a.uploadedAt);
-  });
-
-  const SORT_LABELS: Record<string, string> = {
-    recent: "최신순",
-    name: "이름순",
-  };
-  const currentSortLabel = SORT_LABELS[sortBy];
-
-  const handleSelectSort = (value: "recent" | "name") => {
+  const handleSelectSort = (value: SortBy) => {
     setSortBy(value);
     setSortMenuOpen(false);
   };
 
   const getStatusBadge = (status: string) => {
-    if (status === "expiring_soon")
+    if (status === "expiring_soon") {
       return <Badge label="만료 임박" variant="warning" />;
-    if (status === "expired") return <Badge label="만료됨" variant="error" />;
+    }
+    if (status === "expired") {
+      return <Badge label="만료됨" variant="error" />;
+    }
     return null;
   };
 
   const getDaysUntil = (dateStr?: string) => {
     if (!dateStr) return null;
+
     const today = new Date().toISOString().split("T")[0];
     return Math.ceil(
       (new Date(dateStr).getTime() - new Date(today).getTime()) / 86400000,
     );
   };
+
+  const docs = [...getFilteredDocuments()].sort((a, b) => {
+    if (sortBy === "name") {
+      return a.title.localeCompare(b.title, "ko");
+    }
+    return b.uploadedAt.localeCompare(a.uploadedAt);
+  });
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -138,10 +114,10 @@ export default function CabinetScreen() {
           <Text style={styles.headerCount}>{docs.length}개</Text>
           <TouchableOpacity
             style={styles.sortBtn}
-            onPress={() => setSortMenuOpen((v) => !v)}
+            onPress={() => setSortMenuOpen((value) => !value)}
           >
             <Ionicons name="swap-vertical" size={15} color={Colors.gray600} />
-            <Text style={styles.sortBtnText}>{currentSortLabel}</Text>
+            <Text style={styles.sortBtnText}>{SORT_LABELS[sortBy]}</Text>
             <Ionicons
               name={sortMenuOpen ? "chevron-up" : "chevron-down"}
               size={14}
@@ -151,28 +127,21 @@ export default function CabinetScreen() {
         </View>
       </View>
 
-      {/* 정렬 드롭다운 메뉴 */}
       {sortMenuOpen && (
         <>
-          {/* 바깥 영역 누르면 닫힘 */}
           <TouchableOpacity
             style={styles.dropdownBackdrop}
             activeOpacity={1}
             onPress={() => setSortMenuOpen(false)}
           />
           <View style={styles.dropdown}>
-            {(
-              [
-                { value: "recent", label: "최신순" },
-                { value: "name", label: "이름순" },
-              ] as const
-            ).map((opt) => {
-              const active = sortBy === opt.value;
+            {Object.entries(SORT_LABELS).map(([value, label]) => {
+              const active = sortBy === value;
               return (
                 <TouchableOpacity
-                  key={opt.label}
+                  key={value}
                   style={styles.dropdownItem}
-                  onPress={() => handleSelectSort(opt.value)}
+                  onPress={() => handleSelectSort(value as SortBy)}
                 >
                   <Text
                     style={[
@@ -180,7 +149,7 @@ export default function CabinetScreen() {
                       active && styles.dropdownItemTextActive,
                     ]}
                   >
-                    {opt.label}
+                    {label}
                   </Text>
                   {active && (
                     <Ionicons
@@ -220,8 +189,6 @@ export default function CabinetScreen() {
         style={styles.catScrollView}
         contentContainerStyle={styles.catScroll}
       >
-        {CATEGORIES.map((cat) => (
-        contentContainerStyle={styles.catScroll}>
         {categoryTabs.map((cat) => (
           <TouchableOpacity
             key={cat}
@@ -245,8 +212,6 @@ export default function CabinetScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {docs.length === 0 ? (
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {isLoading ? (
           <View style={styles.empty}>
             <ActivityIndicator size="large" color={Colors.primary} />
@@ -305,8 +270,8 @@ export default function CabinetScreen() {
                 <View style={styles.docRight}>
                   {getStatusBadge(doc.status)}
                   <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation();
+                    onPress={(event) => {
+                      event.stopPropagation();
                       toggleFavorite(doc.id);
                     }}
                     style={styles.favBtn}
@@ -483,7 +448,3 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: "700", color: Colors.gray700 },
   emptyDesc: { fontSize: 14, color: Colors.gray400, textAlign: "center" },
 });
-  emptyTitle: { fontSize: 16, fontWeight: '700', color: Colors.gray700 },
-  emptyDesc: { fontSize: 14, color: Colors.gray400, textAlign: 'center' },
-});
-

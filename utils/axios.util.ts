@@ -14,13 +14,13 @@ const axiosInstance = axios.create({
   },
 });
 
-// 요청 인터셉터: 저장된 토큰을 쿠키 헤더에 붙여서 보냄
+// 요청 인터셉터: 저장된 토큰을 Authorization 헤더에 붙여서 보냄
 axiosInstance.interceptors.request.use(
   async (config) => {
     try {
-      const token = await SecureStore.getItemAsync("X-Access-Token");
+      const token = await SecureStore.getItemAsync("accessToken");
       if (token) {
-        config.headers["Cookie"] = `X-Access-Token=${token}`;
+        config.headers["Authorization"] = `Bearer ${token}`;
       }
     } catch (e) {
       // 토큰 없으면 그냥 넘어감
@@ -30,20 +30,15 @@ axiosInstance.interceptors.request.use(
   (error) => Promise.reject(error),
 );
 
-// 응답 인터셉터: set-cookie 헤더에서 토큰 꺼내서 SecureStore에 저장
+// 응답 인터셉터: 응답에서 토큰 꺼내서 SecureStore에 저장
 axiosInstance.interceptors.response.use(
   async (response) => {
+    console.log("응답 data:", JSON.stringify(response.data, null, 2)); // 확인용
     try {
-      const setCookie = response.headers["set-cookie"];
-      console.log("쿠키:", setCookie);
-      if (setCookie) {
-        const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
-        for (const cookie of cookies) {
-          const match = cookie.match(/X-Access-Token=([^;]+)/);
-          if (match) {
-            await SecureStore.setItemAsync("X-Access-Token", match[1]);
-          }
-        }
+      // 서버가 응답 body에 토큰 넣어주는 경우
+      const token = response.data?.data?.accessToken;
+      if (token) {
+        await SecureStore.setItemAsync("accessToken", token);
       }
     } catch (e) {
       // 저장 실패해도 무시

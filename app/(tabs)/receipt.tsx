@@ -3,13 +3,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useReceiptStore } from "@/stores/receipt-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
-import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
-import { useAuthStore } from '@/stores/auth-store';
-import { useReceiptStore } from '@/stores/receipt-store';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -53,12 +47,6 @@ const normalizeCategory = (category: string): BreakdownCategory => {
 export default function ReceiptScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
-  const {
-    getReceiptsForMonth,
-    getTotalForMonth,
-    getCategoryBreakdown,
-    selectedMonth,
-  } = useReceiptStore();
   const { getReceiptsForMonth, getTotalForMonth, getCategoryBreakdown, selectedMonth, fetchReceipts, isLoading } = useReceiptStore();
 
   const today = new Date().toISOString().split("T")[0];
@@ -218,7 +206,8 @@ export default function ReceiptScreen() {
                       styles.receiptIconWrap,
                       {
                         backgroundColor:
-                          CATEGORY_COLORS[receipt.category] ?? Colors.gray200,
+                          CATEGORY_COLORS[normalizeCategory(receipt.category)] ??
+                          Colors.gray200,
                       },
                     ]}
                   >
