@@ -8,6 +8,8 @@ import {
   getDocumentAlerts,
 } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
+import { showToast } from '@/stores/toast-store';
+import { getErrorMessage } from '@/utils/error';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -117,19 +119,31 @@ export default function DocumentDetailScreen() {
               color={doc.isFavorite ? Colors.warning : Colors.gray400}
             />
           </TouchableOpacity>
+          {/*
+            TODO [서버 연동 시 확인]: 다운로드 파일 형식 / URL 정리 필요
+            - 현재 doc.imageUri를 받아서 무조건 `${doc.title}.pdf`로 저장 중인데,
+              imageUri는 사진(JPG/PNG)일 수도 있음. PDF가 아닌 파일을 .pdf로 저장하면
+              파일이 안 열릴 수 있음.
+            - 시원이 서버가 fileUrl / fileType을 실제로 뭘로 주는지 확인 후,
+              fileType(PDF/JPG/PNG)에 맞춰 확장자를 정해야 함.
+              예: const ext = doc.fileType === 'PDF' ? 'pdf' : doc.fileType.toLowerCase();
+                  downloadPdf(doc.fileUrl, `${doc.title}.${ext}`)
+            - 단, 로컬 Document 타입에는 현재 fileType 필드가 없음 → toDocument에서
+              fileType도 같이 내려주도록 추가 필요 (아래 doc-store 작업과 연계).
+          */}
           <TouchableOpacity
             disabled={downloading}
             onPress={async () => {
               if (!doc.imageUri) {
-                Alert.alert('다운로드 불가', '저장된 파일 URL이 없습니다.');
+                showToast('저장된 파일 URL이 없습니다.', 'error');
                 return;
               }
               setDownloading(true);
               try {
                 const ok = await downloadPdf(doc.imageUri, `${doc.title}.pdf`);
-                Alert.alert(ok ? '저장 완료' : '저장 취소', ok ? 'PDF가 저장되었습니다.' : '');
+                if (ok) showToast('PDF가 저장되었습니다.', 'success');
               } catch (e) {
-                Alert.alert('다운로드 실패', '파일을 받지 못했습니다.');
+                showToast(getErrorMessage(e), 'error');
               } finally {
                 setDownloading(false);
               }
