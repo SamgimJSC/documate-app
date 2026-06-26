@@ -1,17 +1,17 @@
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
-import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
 import {
   cancelAllNotifications,
   getNotificationSettings,
   rescheduleAllNotifications,
   updateNotificationSettings,
-} from '@/services/notifications';
-import { useAuthStore } from '@/stores/auth-store';
-import { useDocStore } from '@/stores/doc-store';
+} from "@/services/notifications";
+import { useAuthStore } from "@/stores/auth-store";
+import { useDocStore } from "@/stores/doc-store";
 import { analyzePassword, validatePassword } from "@/utils/validation";
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -26,7 +26,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type IconName = React.ComponentProps<typeof Ionicons>['name'];
+type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
 interface MenuItemProps {
   icon: IconName;
@@ -35,19 +35,38 @@ interface MenuItemProps {
   value?: string;
   toggle?: boolean;
   toggleValue?: boolean;
-  onToggle?: (v: boolean) => void;
+  onToggle?: (value: boolean) => void;
   danger?: boolean;
 }
 
-function MenuItem({ icon, label, onPress, value, toggle, toggleValue, onToggle, danger }: MenuItemProps) {
+function MenuItem({
+  icon,
+  label,
+  onPress,
+  value,
+  toggle,
+  toggleValue,
+  onToggle,
+  danger,
+}: MenuItemProps) {
   return (
-    <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={toggle ? 1 : 0.7}>
+    <TouchableOpacity
+      style={styles.menuItem}
+      onPress={onPress}
+      activeOpacity={toggle ? 1 : 0.7}
+    >
       <View style={[styles.menuIconWrap, danger && styles.menuIconDanger]}>
-        <Ionicons name={icon} size={18} color={danger ? Colors.error : Colors.primary} />
+        <Ionicons
+          name={icon}
+          size={18}
+          color={danger ? Colors.error : Colors.primary}
+        />
       </View>
-      <Text style={[styles.menuLabel, danger && styles.menuLabelDanger]}>{label}</Text>
+      <Text style={[styles.menuLabel, danger && styles.menuLabelDanger]}>
+        {label}
+      </Text>
       <View style={styles.menuRight}>
-        {value && <Text style={styles.menuValue}>{value}</Text>}
+        {value ? <Text style={styles.menuValue}>{value}</Text> : null}
         {toggle ? (
           <Switch
             value={toggleValue}
@@ -55,7 +74,13 @@ function MenuItem({ icon, label, onPress, value, toggle, toggleValue, onToggle, 
             trackColor={{ false: Colors.gray200, true: Colors.primary }}
           />
         ) : (
-          !danger && <Ionicons name="chevron-forward" size={16} color={Colors.gray300} />
+          !danger && (
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={Colors.gray300}
+            />
+          )
         )}
       </View>
     </TouchableOpacity>
@@ -64,6 +89,7 @@ function MenuItem({ icon, label, onPress, value, toggle, toggleValue, onToggle, 
 
 export default function MyPageScreen() {
   const router = useRouter();
+  const documents = useDocStore((state) => state.documents);
   const {
     user,
     logout,
@@ -74,38 +100,11 @@ export default function MyPageScreen() {
     verifyPassword,
     updatePassword,
   } = useAuthStore();
+
   const [pushEnabled, setPushEnabled] = useState(true);
   const [emailEnabled, setEmailEnabled] = useState(true);
-  const documents = useDocStore((s) => s.documents);
-
-  useEffect(() => {
-    getNotificationSettings()
-      .then((settings) => {
-        setPushEnabled(settings.app_push_enabled);
-        setEmailEnabled(settings.email_enabled);
-      })
-      .catch((e) => console.log('알림 설정 조회 실패:', e));
-  }, []);
-
-  const handlePushToggle = async (value: boolean) => {
-    setPushEnabled(value);
-    if (value) {
-      await rescheduleAllNotifications(documents);
-    } else {
-      await cancelAllNotifications();
-    }
-    updateNotificationSettings({ app_push_enabled: value }).catch((e) =>
-      console.log('알림 설정 업데이트 실패:', e)
-    );
-  };
-
-  const handleEmailToggle = async (value: boolean) => {
-    setEmailEnabled(value);
-    updateNotificationSettings({ email_enabled: value }).catch((e) =>
-      console.log('알림 설정 업데이트 실패:', e)
-    );
-  };
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [nicknameModalVisible, setNicknameModalVisible] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(user?.nickname ?? "");
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [passwordStep, setPasswordStep] = useState<"verify" | "change">(
@@ -120,6 +119,7 @@ export default function MyPageScreen() {
 
   const { typeCount: newPwTypeCount, strengthLabel: newPwStrengthLabel } =
     useMemo(() => analyzePassword(newPassword), [newPassword]);
+
   const newPwStrengthColor =
     newPwTypeCount === 0
       ? Colors.gray500
@@ -129,27 +129,61 @@ export default function MyPageScreen() {
           ? Colors.warning
           : Colors.success;
 
-  const storagePercent = user ? Math.round((user.storageUsed / user.storageLimit) * 100) : 0;
+  const storagePercent = user
+    ? Math.min(100, Math.round((user.storageUsed / user.storageLimit) * 100))
+    : 0;
 
   useEffect(() => {
     setNicknameInput(user?.nickname ?? "");
   }, [user]);
 
-  const handleOpenProfileEdit = () => {
-    setIsEditingProfile(true);
+  useEffect(() => {
+    getNotificationSettings()
+      .then((settings) => {
+        setPushEnabled(settings.app_push_enabled);
+        setEmailEnabled(settings.email_enabled);
+      })
+      .catch((error) => console.log("알림 설정 조회 실패:", error));
+  }, []);
+
+  const handleOpenNicknameEdit = () => {
+    setSettingsModalVisible(false);
+    setNicknameInput(user?.nickname ?? "");
     setNicknameMessage(null);
-    setPasswordMessage(null);
+    setNicknameModalVisible(true);
   };
 
-  const handleCloseProfileEdit = () => {
-    setIsEditingProfile(false);
-    setPasswordError(null);
+  const handleCloseNicknameEdit = () => {
+    setNicknameModalVisible(false);
+    setNicknameMessage(null);
+    setNicknameInput(user?.nickname ?? "");
+  };
+
+  const handlePushToggle = async (value: boolean) => {
+    setPushEnabled(value);
+    try {
+      if (value) {
+        await rescheduleAllNotifications(documents);
+      } else {
+        await cancelAllNotifications();
+      }
+      await updateNotificationSettings({ app_push_enabled: value });
+    } catch (error) {
+      console.log("알림 설정 업데이트 실패:", error);
+    }
+  };
+
+  const handleEmailToggle = async (value: boolean) => {
+    setEmailEnabled(value);
+    updateNotificationSettings({ email_enabled: value }).catch((error) =>
+      console.log("알림 설정 업데이트 실패:", error),
+    );
   };
 
   const handleLogout = () => {
-    Alert.alert('로그아웃', '정말 로그아웃 하시겠습니까?', [
-      { text: '취소', style: 'cancel' },
-      { text: '로그아웃', style: 'destructive', onPress: logout },
+    Alert.alert("로그아웃", "정말 로그아웃 하시겠습니까?", [
+      { text: "취소", style: "cancel" },
+      { text: "로그아웃", style: "destructive", onPress: logout },
     ]);
   };
 
@@ -168,6 +202,7 @@ export default function MyPageScreen() {
   };
 
   const handleStartPasswordChange = () => {
+    setSettingsModalVisible(false);
     setPasswordModalVisible(true);
     setPasswordStep("verify");
     setCurrentPassword("");
@@ -194,6 +229,7 @@ export default function MyPageScreen() {
       setPasswordError("비밀번호가 일치하지 않습니다.");
       return;
     }
+
     const passwordErr = validatePassword(newPassword);
     if (passwordErr) {
       setPasswordError(passwordErr);
@@ -218,13 +254,18 @@ export default function MyPageScreen() {
 
   const handleWithdraw = () => {
     Alert.alert(
-      '회원탈퇴',
-      '탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠습니까?',
+      "회원탈퇴",
+      "탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠습니까?",
       [
-        { text: '취소', style: 'cancel' },
-        { text: '탈퇴', style: 'destructive', onPress: logout },
-      ]
+        { text: "취소", style: "cancel" },
+        { text: "탈퇴", style: "destructive", onPress: logout },
+      ],
     );
+  };
+
+  const handlePinReset = () => {
+    setSettingsModalVisible(false);
+    router.push("/(auth)/pin-setup" as any);
   };
 
   return (
@@ -233,103 +274,80 @@ export default function MyPageScreen() {
         <Text style={styles.headerTitle}>마이페이지</Text>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 프로필 카드 */}
-<View style={styles.profileCard}>
-  <View style={styles.avatarWrap}>
-    <Ionicons name="person" size={36} color={Colors.primary} />
-  </View>
-
-  <View style={styles.profileInfo}>
-    <Text style={styles.nickname}>{user?.nickname}</Text>
-    <Text style={styles.email}>{user?.email}</Text>
-
-    <View
-      style={[
-        styles.planBadge,
-        user?.plan === "pro" ? styles.planBadgePro : styles.planBadgeFree,
-      ]}
-    >
-      <Text
-        style={[
-          styles.planText,
-          user?.plan === "pro" ? styles.planTextPro : styles.planTextFree,
-        ]}
-        numberOfLines={1}
-        ellipsizeMode="tail"
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        {user?.plan === "pro" ? "Pro" : "Free"}
-      </Text>
-    </View>
-  </View>
-
-  <View style={styles.profileAction}>
-    <Button
-      label="회원정보 수정"
-      onPress={handleOpenProfileEdit}
-      style={styles.profileActionButton}
-    />
-  </View>
-</View>
-
-        {isEditingProfile ? (
-          <View style={styles.editSection}>
-            <View style={styles.editHeader}>
-              <TouchableOpacity onPress={handleCloseProfileEdit}>
-                <Text style={styles.editCloseText}>닫기</Text>
-              </TouchableOpacity>
+        <View style={styles.profileCard}>
+          <View style={styles.profileTop}>
+            <View style={styles.avatarWrap}>
+              <Ionicons name="person" size={36} color={Colors.primary} />
             </View>
-            <Input label="이메일" value={user?.email ?? ""} editable={false} />
-            <Input
-              label="닉네임"
-              placeholder="닉네임 입력"
-              value={nicknameInput}
-              onChangeText={setNicknameInput}
-            />
-            <Button label="닉네임 저장" onPress={handleSaveNickname} />
-            {nicknameMessage ? (
-              <Text style={styles.noticeText}>{nicknameMessage}</Text>
-            ) : null}
-            <View style={styles.sectionDivider} />
-            <Text style={styles.sectionSubTitle}>비밀번호 변경</Text>
-            <Button label="비밀번호 변경" onPress={handleStartPasswordChange} />
-            {passwordMessage ? (
-              <Text style={styles.noticeText}>{passwordMessage}</Text>
-            ) : null}
+            <View style={styles.profileInfo}>
+              <Text style={styles.nickname}>{user?.nickname ?? "사용자"}</Text>
+              <Text style={styles.email} numberOfLines={1}>
+                {user?.email ?? "-"}
+              </Text>
+              <View
+                style={[
+                  styles.planBadge,
+                  user?.plan === "pro"
+                    ? styles.planBadgePro
+                    : styles.planBadgeFree,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.planText,
+                    user?.plan === "pro"
+                      ? styles.planTextPro
+                      : styles.planTextFree,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {user?.plan === "pro" ? "Pro" : "Free"}
+                </Text>
+              </View>
+            </View>
           </View>
+
+          <View style={styles.profileBottom}>
+            <TouchableOpacity
+              onPress={() => setSettingsModalVisible(true)}
+              style={styles.settingsButton}
+            >
+              <Ionicons
+                name="settings-outline"
+                size={24}
+                color={Colors.primary}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {passwordMessage ? (
+          <Text style={styles.noticeText}>{passwordMessage}</Text>
         ) : null}
 
-        { /* 스토리지 */}
         <View style={styles.storageCard}>
           <View style={styles.storageRow}>
             <Text style={styles.storageLabel}>스토리지 사용량</Text>
-            <Text style={styles.storageValue}>{user?.storageUsed.toFixed(1)}GB / {user?.storageLimit}GB</Text>
+            <Text style={styles.storageValue}>
+              {user?.storageUsed.toFixed(1) ?? "0.0"}GB /{" "}
+              {user?.storageLimit ?? 0}GB
+            </Text>
           </View>
           <View style={styles.storageBar}>
-            <View style={[styles.storageBarFill, { width: `${storagePercent}%` as any }]} />
+            <View
+              style={[
+                styles.storageBarFill,
+                { width: `${storagePercent}%` as any },
+              ]}
+            />
           </View>
         </View>
 
-        {/* 비밀번호 설정 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>계정 설정</Text>
-          <MenuItem icon="pencil-outline" label="닉네임 수정" onPress={handleOpenProfileEdit} value={user?.nickname}/>
-          <View style={styles.divider} />
-          <MenuItem icon="lock-closed-outline" label="비밀번호 변경" onPress={handleStartPasswordChange}/>
-          <View style={styles.divider} />
-          <MenuItem icon="keypad-outline" label="PIN 번호 재설정" onPress={() => router.push('/(auth)/pin-setup' as any)} />
-          <View style={styles.divider} />
-          <MenuItem
-            icon="finger-print-outline"
-            label="생체인증"
-            onPress={() => {}}
-            toggle
-            toggleValue={isBiometricEnabled}
-            onToggle={(v) => (v ? enableBiometric() : disableBiometric())}
-          />
-        </View>
-
-        {/* 알림 설정 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>알림 설정</Text>
           <MenuItem
@@ -351,123 +369,251 @@ export default function MyPageScreen() {
           />
         </View>
 
-        {/* 요금제 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>요금제 관리</Text>
-          {user?.plan === 'free' ? (
-            <TouchableOpacity style={styles.upgradeBtn} onPress={() => router.push('/pro-promotion' as any)}>
-              <View>
+          {user?.plan === "free" ? (
+            <TouchableOpacity
+              style={styles.upgradeBtn}
+              onPress={() => router.push("/pro-promotion" as any)}
+            >
+              <View style={styles.upgradeCopy}>
                 <Text style={styles.upgradeTitle}>Pro로 업그레이드</Text>
-                <Text style={styles.upgradeDesc}>AI 소비분석 · 월별 리포트 · 마스킹 기능</Text>
+                <Text style={styles.upgradeDesc}>
+                  AI 소비분석 · 월별 리포트 · 마스킹 기능
+                </Text>
               </View>
               <View style={styles.upgradeArrow}>
-                <Ionicons name="chevron-forward" size={20} color={Colors.white} />
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={Colors.white}
+                />
               </View>
             </TouchableOpacity>
           ) : (
-            <MenuItem icon="star-outline" label="Pro 플랜 관리" onPress={() => router.push('/pro-promotion' as any)} />
+            <MenuItem
+              icon="star-outline"
+              label="Pro 플랜 관리"
+              onPress={() => router.push("/pro-promotion" as any)}
+            />
           )}
         </View>
 
-        {/* 약관 및 기타 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>기타</Text>
-          <MenuItem icon="document-text-outline" label="이용약관" onPress={() => {}} />
+          <MenuItem
+            icon="document-text-outline"
+            label="이용약관"
+            onPress={() => {}}
+          />
           <View style={styles.divider} />
-          <MenuItem icon="shield-outline" label="개인정보처리방침" onPress={() => {}} />
+          <MenuItem
+            icon="shield-outline"
+            label="개인정보처리방침"
+            onPress={() => {}}
+          />
           <View style={styles.divider} />
-          <MenuItem icon="information-circle-outline" label="앱 버전" onPress={() => {}} value="1.0.0" />
+          <MenuItem
+            icon="information-circle-outline"
+            label="앱 버전"
+            onPress={() => {}}
+            value="1.0.0"
+          />
         </View>
 
-        <Modal visible={passwordModalVisible} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContainer}>
-              <Text style={styles.modalTitle}>비밀번호 변경</Text>
-              {passwordStep === "verify" ? (
-                <>
-                  <Text style={styles.modalDescription}>
-                    기존 비밀번호를 입력하면 새 비밀번호를 설정할 수 있습니다.
-                  </Text>
-                  <Input
-                    label="기존 비밀번호"
-                    placeholder="현재 비밀번호 입력"
-                    value={currentPassword}
-                    onChangeText={setCurrentPassword}
-                    isPassword
-                  />
-                  {passwordError ? (
-                    <Text style={styles.errorText}>{passwordError}</Text>
-                  ) : null}
-                  <Button label="확인" onPress={handleVerifyCurrentPassword} />
-                  <Button
-                    label="취소"
-                    variant="outline"
-                    onPress={() => {
-                      setPasswordModalVisible(false);
-                      setPasswordError(null);
-                    }}
-                  />
-                </>
-              ) : (
-                <>
-                  <Text style={styles.modalDescription}>
-                    새 비밀번호를 입력하고 확인해 주세요.
-                  </Text>
-                  <Input
-                    label="새 비밀번호"
-                    placeholder="8자 이상 입력"
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    isPassword
-                  />
-                  <Text style={styles.passwordHint}>
-                    영문, 숫자, 특수문자 중 2개 이상 포함해야 합니다.
-                  </Text>
-                  {newPassword.length > 0 ? (
-                    <Text
-                      style={[
-                        styles.passwordStrength,
-                        { color: newPwStrengthColor },
-                      ]}
-                    >
-                      비밀번호 강도: {newPwStrengthLabel}
-                    </Text>
-                  ) : null}
-                  <Input
-                    label="비밀번호 확인"
-                    placeholder="새 비밀번호 재입력"
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    isPassword
-                  />
-                  {passwordError ? (
-                    <Text style={styles.errorText}>{passwordError}</Text>
-                  ) : null}
-                  <Button label="변경하기" onPress={handleUpdatePassword} />
-                  <Button
-                    label="이전"
-                    variant="outline"
-                    onPress={() => {
-                      setPasswordStep("verify");
-                      setPasswordError(null);
-                    }}
-                  />
-                </>
-              )}
-            </View>
-          </View>
-        </Modal>
-
-        {/* 로그아웃 / 탈퇴 */}
         <View style={styles.section}>
-          <MenuItem icon="log-out-outline" label="로그아웃" onPress={handleLogout} danger />
+          <MenuItem
+            icon="log-out-outline"
+            label="로그아웃"
+            onPress={handleLogout}
+            danger
+          />
           <View style={styles.divider} />
-          <MenuItem icon="trash-outline" label="회원탈퇴" onPress={handleWithdraw} danger />
+          <MenuItem
+            icon="trash-outline"
+            label="회원탈퇴"
+            onPress={handleWithdraw}
+            danger
+          />
         </View>
       </ScrollView>
+
+      <Modal
+        visible={settingsModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSettingsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>계정 설정</Text>
+              <TouchableOpacity onPress={() => setSettingsModalVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.gray500} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalMenu}>
+              <MenuItem
+                icon="pencil-outline"
+                label="닉네임 수정"
+                onPress={handleOpenNicknameEdit}
+                value={user?.nickname}
+              />
+              <View style={styles.divider} />
+              <MenuItem
+                icon="lock-closed-outline"
+                label="비밀번호 변경"
+                onPress={handleStartPasswordChange}
+              />
+              <View style={styles.divider} />
+              <MenuItem
+                icon="keypad-outline"
+                label="PIN 번호 재설정"
+                onPress={handlePinReset}
+              />
+              <View style={styles.divider} />
+              <MenuItem
+                icon="finger-print-outline"
+                label="생체인증"
+                onPress={() => {}}
+                toggle
+                toggleValue={isBiometricEnabled}
+                onToggle={(value) =>
+                  value ? enableBiometric() : disableBiometric()
+                }
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={nicknameModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseNicknameEdit}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>닉네임 수정</Text>
+              <TouchableOpacity onPress={handleCloseNicknameEdit}>
+                <Ionicons name="close" size={22} color={Colors.gray500} />
+              </TouchableOpacity>
+            </View>
+            <Input
+              label="닉네임"
+              placeholder="닉네임 입력"
+              value={nicknameInput}
+              onChangeText={(text) => {
+                setNicknameInput(text);
+                setNicknameMessage(null);
+              }}
+            />
+            {nicknameMessage ? (
+              <Text style={styles.noticeText}>{nicknameMessage}</Text>
+            ) : null}
+            <Button label="저장" onPress={handleSaveNickname} />
+            <Button
+              label="닫기"
+              variant="outline"
+              onPress={handleCloseNicknameEdit}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={passwordModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>비밀번호 변경</Text>
+            {passwordStep === "verify" ? (
+              <>
+                <Text style={styles.modalDescription}>
+                  기존 비밀번호를 입력하면 새 비밀번호를 설정할 수 있습니다.
+                </Text>
+                <Input
+                  label="기존 비밀번호"
+                  placeholder="현재 비밀번호 입력"
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  isPassword
+                />
+                {passwordError ? (
+                  <Text style={styles.errorText}>{passwordError}</Text>
+                ) : null}
+                <Button label="확인" onPress={handleVerifyCurrentPassword} />
+                <Button
+                  label="취소"
+                  variant="outline"
+                  onPress={() => {
+                    setPasswordModalVisible(false);
+                    setPasswordError(null);
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalDescription}>
+                  새 비밀번호를 입력하고 확인해 주세요.
+                </Text>
+                <Input
+                  label="새 비밀번호"
+                  placeholder="8자 이상 입력"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  isPassword
+                />
+                <Text style={styles.passwordHint}>
+                  영문, 숫자, 특수문자 중 2개 이상 포함해야 합니다.
+                </Text>
+                {newPassword.length > 0 ? (
+                  <Text
+                    style={[
+                      styles.passwordStrength,
+                      { color: newPwStrengthColor },
+                    ]}
+                  >
+                    비밀번호 강도: {newPwStrengthLabel}
+                  </Text>
+                ) : null}
+                <Input
+                  label="비밀번호 확인"
+                  placeholder="새 비밀번호 재입력"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  isPassword
+                />
+                {passwordError ? (
+                  <Text style={styles.errorText}>{passwordError}</Text>
+                ) : null}
+                <Button label="변경하기" onPress={handleUpdatePassword} />
+                <Button
+                  label="이전"
+                  variant="outline"
+                  onPress={() => {
+                    setPasswordStep("verify");
+                    setPasswordError(null);
+                  }}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
+
+const cardShadow = Platform.select({
+  ios: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+  },
+  android: { elevation: 2 },
+});
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
@@ -483,23 +629,17 @@ const styles = StyleSheet.create({
     gap: Spacing.lg,
     paddingBottom: TAB_BAR_SPACE,
   },
-
   profileCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     padding: Spacing.lg,
+    gap: Spacing.md,
+    ...cardShadow,
+  },
+  profileTop: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
   },
   avatarWrap: {
     width: 72,
@@ -509,10 +649,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  profileInfo: { flex: 1, gap: Spacing.xs },
-  profileAction: { justifyContent: "center" },
-  profileActionButton: { minWidth: 110, alignSelf: "flex-end" },
-
+  profileInfo: { flex: 1, gap: Spacing.xs, minWidth: 0 },
+  profileBottom: { alignItems: "flex-end" },
+  settingsButton: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primaryLight,
+  },
   nickname: { fontSize: 18, fontWeight: "700", color: Colors.gray900 },
   email: { fontSize: 13, color: Colors.gray500 },
   planBadge: {
@@ -520,77 +666,19 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: Radius.full,
     alignSelf: "flex-start",
-    flexShrink: 0,
   },
   planBadgeFree: { backgroundColor: Colors.gray100 },
   planBadgePro: { backgroundColor: Colors.proLight },
-  planText: {
-    fontSize: 12,
-    fontWeight: "700",
-    flexWrap: "nowrap",
-  },
+  planText: { fontSize: 12, fontWeight: "700" },
   planTextFree: { color: Colors.gray500 },
   planTextPro: { color: Colors.pro },
-
-  editSection: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    paddingTop: Spacing.xl,
-    gap: Spacing.sm,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  editHeader: {
-    position: "absolute",
-    top: Spacing.lg,
-    right: Spacing.lg,
-    zIndex: 1,
-  },
-  editCloseText: {
-    fontSize: 14,
-    color: Colors.gray500,
-    fontWeight: "600",
-    textAlign: "right",
-  },
-  sectionSubTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Colors.gray900,
-    marginTop: Spacing.md,
-  },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: Colors.gray100,
-    marginVertical: Spacing.md,
-  },
-  noticeText: {
-    fontSize: 13,
-    color: Colors.primary,
-    marginTop: Spacing.sm,
-  },
-
+  noticeText: { fontSize: 13, color: Colors.primary, marginTop: Spacing.sm },
   storageCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     padding: Spacing.lg,
     gap: Spacing.sm,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
+    ...cardShadow,
   },
   storageRow: { flexDirection: "row", justifyContent: "space-between" },
   storageLabel: { fontSize: 14, color: Colors.gray600, fontWeight: "500" },
@@ -606,20 +694,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: Radius.full,
   },
-
   section: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     overflow: "hidden",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
+    ...cardShadow,
   },
   sectionTitle: {
     fontSize: 13,
@@ -663,7 +742,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gray100,
     marginLeft: Spacing.lg + 36 + Spacing.md,
   },
-
   upgradeBtn: {
     margin: Spacing.md,
     backgroundColor: Colors.primary,
@@ -672,7 +750,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: Spacing.md,
   },
+  upgradeCopy: { flex: 1 },
   upgradeTitle: { fontSize: 15, fontWeight: "700", color: Colors.white },
   upgradeDesc: {
     fontSize: 12,
@@ -687,7 +767,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",
@@ -703,11 +782,19 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     gap: Spacing.sm,
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.gray900,
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.xs,
   },
+  modalMenu: {
+    borderRadius: Radius.lg,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.gray100,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: Colors.gray900 },
   modalDescription: {
     fontSize: 13,
     color: Colors.gray500,
@@ -718,10 +805,7 @@ const styles = StyleSheet.create({
     color: Colors.error,
     marginBottom: Spacing.sm,
   },
-  passwordHint: {
-    fontSize: 12,
-    color: Colors.gray500,
-  },
+  passwordHint: { fontSize: 12, color: Colors.gray500 },
   passwordStrength: {
     fontSize: 12,
     fontWeight: "700",

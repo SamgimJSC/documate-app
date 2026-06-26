@@ -180,7 +180,7 @@ export type NotificationSettings = {
 // 서버 알림 API 연결
 // ===============================
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 
 export type NotificationStatus = "all" | "unread" | "read";
 

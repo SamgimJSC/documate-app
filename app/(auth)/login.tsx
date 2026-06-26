@@ -2,9 +2,12 @@ import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Colors, Radius, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/stores/auth-store";
+import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter } from "expo-router";
+
 import React, { useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -21,10 +24,9 @@ export default function LoginScreen() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
   const isBiometricEnabled = useAuthStore((s) => s.isBiometricEnabled);
-  const isPinSet = useAuthStore((s) => s.isPinSet);
   const setPinVerified = useAuthStore((s) => s.setPinVerified);
-  const [email, setEmail] = useState("test@test");
-  const [password, setPassword] = useState("test");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -35,18 +37,55 @@ export default function LoginScreen() {
     }
     setError("");
     setLoading(true);
+
     try {
-      await login(email, password);
+      await axiosInstance.post("/auth/login", { email, password });
+
+      const userRes = await axiosInstance.get("/users/me");
+      const userData = userRes.data;
+
+      useAuthStore.setState({
+        isAuthenticated: true,
+        isPinVerified: true,
+        token: "logged-in",
+        user: {
+          id: userData.userId,
+          email: userData.email,
+          nickname: userData.nickname,
+          plan: userData.plan === "PRO" ? "pro" : "free",
+          storageUsed: Number(userData.storageUsedBytes) / 1024 / 1024 / 1024,
+          storageLimit: userData.storageQuotaBytes
+            ? Number(userData.storageQuotaBytes) / 1024 / 1024 / 1024
+            : 5,
+        },
+      });
+
       router.replace("/(tabs)");
-    } catch {
-      setError("로그인에 실패했습니다. 다시 시도해주세요.");
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const serverError = err.response?.data;
+        if (serverError?.errorCode === "USER_NOT_FOUND") {
+          setError("존재하지 않는 이메일입니다.");
+        } else if (serverError?.errorCode === "INVALID_PASSWORD") {
+          setError("비밀번호가 올바르지 않습니다.");
+        } else {
+          setError("로그인에 실패했습니다.");
+        }
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const isPinSet = useAuthStore((s) => s.isPinSet);
+
   const handlePinLogin = () => {
-    router.push(`/(auth)/${isPinSet ? "pin-verify" : "pin-setup"}` as any);
+    setError("");
+    if (!isPinSet) {
+      router.push("/(auth)/pin-setup" as any);
+      return;
+    }
+    router.push("/(auth)/pin-verify" as any);
   };
 
   const handleBiometricLogin = async () => {

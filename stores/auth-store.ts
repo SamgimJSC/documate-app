@@ -70,10 +70,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   //   - 응답에서 받은 실제 user 정보(id, nickname, plan, storageUsed 등)로 set() 해야 함
   login: async (email, _password) => {
     await new Promise((r) => setTimeout(r, 800));
-    const currentPassword = get().password;
-    if (_password !== currentPassword) {
-      throw new Error("INVALID_PASSWORD");
-    }
+    // API에서 이미 인증됨 → Mock 검증 제거
     set({
       user: { ...MOCK_USER, email },
       token: "mock-jwt-token",
@@ -134,7 +131,19 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   verifyPin: (pin) => {
     const isCorrect = get().pin === pin;
-    if (isCorrect) set({ isPinVerified: true, isAuthenticated: true });
+    if (isCorrect) {
+      set({
+        user:
+          get().user ??
+          ({
+            ...MOCK_USER,
+            email: get().user?.email ?? MOCK_USER.email,
+          } as User),
+        token: get().token ?? "mock-jwt-token",
+        isPinVerified: true,
+        isAuthenticated: true,
+      });
+    }
     return isCorrect;
   },
 
