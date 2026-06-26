@@ -1,6 +1,7 @@
 import { PinPad } from "@/components/common/pin-pad";
 import { Colors, Radius, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/stores/auth-store";
+import axiosInstance from "@/utils/axios.util";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -10,7 +11,54 @@ type Step = "enter" | "confirm";
 
 export default function PinSetupScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ source?: string }>();
+  const params = useLocalSearchParams<{
+    source?: string;
+    email?: string;
+    password?: string;
+    nickname?: string;
+    emailVerificationId?: string;
+  }>();
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirm = async (val: string) => {
+    setConfirmPin(val);
+    if (val.length === 6) {
+      if (val === firstPin) {
+        if (source) {
+          setLoading(true);
+          try {
+            await axiosInstance.post("/auth/signup", {
+              email: params.email,
+              password: params.password,
+              nickname: params.nickname,
+              pinNumber: val,
+              emailVerificationId: params.emailVerificationId,
+            });
+            setPin(val);
+            setPinVerified(true);
+            setShowCompleteModal(true);
+          } catch {
+            setError("회원가입에 실패했습니다. 다시 시도해주세요.");
+            setConfirmPin("");
+            setFirstPin("");
+            setStep("enter");
+          } finally {
+            setLoading(false);
+          }
+        } else {
+          setPin(val);
+          setPinVerified(true);
+          router.replace("/(tabs)" as any);
+        }
+      } else {
+        setError("PIN이 일치하지 않습니다. 다시 시도해주세요.");
+        setConfirmPin("");
+        setFirstPin("");
+        setStep("enter");
+      }
+    }
+  };
+
   const source = params.source === "register";
   const setPin = useAuthStore((s) => s.setPin);
   const setPinVerified = useAuthStore((s) => s.setPinVerified);
@@ -24,26 +72,6 @@ export default function PinSetupScreen() {
     setFirstPin(val);
     if (val.length === 6) {
       setStep("confirm");
-    }
-  };
-
-  const handleConfirm = (val: string) => {
-    setConfirmPin(val);
-    if (val.length === 6) {
-      if (val === firstPin) {
-        setPin(val);
-        setPinVerified(true);
-        if (source) {
-          setShowCompleteModal(true);
-        } else {
-          router.replace("/(tabs)" as any);
-        }
-      } else {
-        setError("PIN이 일치하지 않습니다. 다시 시도해주세요.");
-        setConfirmPin("");
-        setFirstPin("");
-        setStep("enter");
-      }
     }
   };
 

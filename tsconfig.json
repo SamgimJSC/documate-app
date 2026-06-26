@@ -3,10 +3,9 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ]
-    }
+      "@/*": ["./*"]
+    },
+    "types": ["node"]
   },
   "include": [
     "app/**/*.ts",
@@ -24,12 +23,9 @@
     "types/**/*.ts",
     "types/**/*.tsx",
     "expo-env.d.ts",
-    ".expo/types/**/*.ts"
+    "styles/**/*.ts",
+    ".expo/types/**/*.ts",
+    "types/env.d.ts"
   ],
-  "exclude": [
-    "node_modules",
-    ".expo",
-    "dist",
-    "build"
-  ]
+  "exclude": ["node_modules", ".expo", "dist", "build"]
 }
