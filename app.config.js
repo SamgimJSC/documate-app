@@ -52,7 +52,7 @@ export default {
         {
           icon: "./assets/images/android-icon-monochrome.png",
           color: "#1565C0",
-          defaultChannel: "default",
+        //   defaultChannel: "default",
         },
       ],
       "@react-native-firebase/app",
