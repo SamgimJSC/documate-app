@@ -30,7 +30,7 @@ export const useReceiptStore = create<ReceiptState>()((set, get) => ({
   fetchReceipts: async (month?: string) => {
     set({ isLoading: true });
     try {
-      const data = await getReceipts({ month, per_page: 100 });
+      const data = await getReceipts({ month, sort: 'latest', size: 100 });
       set({ receipts: data });
     } catch (e) {
       console.error('영수증 목록 조회 실패:', e);
@@ -76,14 +76,14 @@ export const useReceiptStore = create<ReceiptState>()((set, get) => ({
   getTotalForMonth: (month) =>
     get()
       .receipts.filter((r) => r.date.startsWith(month))
-      .reduce((sum, r) => sum + r.amount, 0),
+      .reduce((sum, r) => sum + Number(r.amount), 0),
 
   getCategoryBreakdown: (month) => {
     const receipts = get().receipts.filter((r) => r.date.startsWith(month));
-    const total = receipts.reduce((sum, r) => sum + r.amount, 0);
+    const total = receipts.reduce((sum, r) => sum + Number(r.amount), 0);
     const map: Record<string, number> = {};
     for (const r of receipts) {
-      map[r.category] = (map[r.category] ?? 0) + r.amount;
+      map[r.category] = (map[r.category] ?? 0) + Number(r.amount);
     }
     return Object.entries(map)
       .sort((a, b) => b[1] - a[1])

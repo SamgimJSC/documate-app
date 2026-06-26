@@ -3,7 +3,7 @@ import * as SecureStore from "expo-secure-store";
 
 console.log(process.env.EXPO_PUBLIC_API_URL);
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "";
 
 const axiosInstance = axios.create({
   baseURL: BASE_URL,
