@@ -4,16 +4,16 @@
 //  이 파일은 두 개의 섹션으로 구성되어 있습니다.
 //
 //  ┌─ Section 1 (현재 활성) ──────────────────────────────────────────────┐
-//  │  expo-notifications 기반 구현                                         │
-//  │  • Expo Go에서 로컬 알림 테스트 가능                                  │
+//  │  expo-notifications 기반 구현                                        │
+//  │  • Expo Go에서 로컬 알림 테스트 가능                                   │
 //  │  • 실제 FCM push 수신 불가 (Expo Go 한계)                             │
-//  └──────────────────────────────────────────────────────────────────────┘
+//  └─────────────────────────────────────────────────────────────────────┘
 //
 //  ┌─ Section 2 (비활성 — 주석 처리) ────────────────────────────────────┐
-//  │  @react-native-firebase/messaging 기반 구현                          │
-//  │  • eas build --profile development 빌드 이후 사용                    │
-//  │  • 실제 FCM push 수신 가능 (포그라운드 / 백그라운드 / 종료 모두)     │
-//  └──────────────────────────────────────────────────────────────────────┘
+//  │  @react-native-firebase/messaging 기반 구현                        │
+//  │  • eas build --profile development 빌드 이후 사용                   │
+//  │  • 실제 FCM push 수신 가능 (포그라운드 / 백그라운드 / 종료 모두)         │
+//  └───────────────────────────────────────────────────────────────────┘
 //
 //  ── 전환 방법 (Expo Go → Dev Client) ────────────────────────────────────
 //  1. Section 1 전체를 주석 처리
@@ -69,7 +69,7 @@ export async function getFcmToken(): Promise<string | null> {
       return null;
     }
 
-    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    const tokenData = await Notifications.getDevicePushTokenAsync();
     console.log("Expo Push Token:", tokenData.data);
     return tokenData.data;
   } catch (e) {

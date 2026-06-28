@@ -1,5 +1,5 @@
 import { Receipt, ReceiptCategory } from '@/constants/mock-data';
-import { getReceipts, updateReceiptFavorite } from '@/services/receipts';
+import { getReceipts } from '@/services/receipts';
 import { create } from 'zustand';
 
 interface ReceiptState {
@@ -45,27 +45,16 @@ export const useReceiptStore = create<ReceiptState>()((set, get) => ({
   removeReceipt: (id) =>
     set((state) => ({ receipts: state.receipts.filter((r) => r.id !== id) })),
 
-  toggleFavorite: async (id) => {
+  toggleFavorite: (id) => {
     const receipt = get().receipts.find((r) => r.id === id);
     if (!receipt) return;
-
     const newFav = !receipt.isFavorite;
     set((state) => ({
       receipts: state.receipts.map((r) =>
         r.id === id ? { ...r, isFavorite: newFav } : r
       ),
     }));
-
-    try {
-      await updateReceiptFavorite(id, newFav);
-    } catch (e) {
-      set((state) => ({
-        receipts: state.receipts.map((r) =>
-          r.id === id ? { ...r, isFavorite: !newFav } : r
-        ),
-      }));
-      console.error('영수증 즐겨찾기 API 실패:', e);
-    }
+    // TODO: 백엔드에 isFavorite 컬럼 및 PATCH /receipts/:id/favorite 구현 후 API 연동
   },
 
   setSelectedMonth: (month) => set({ selectedMonth: month }),

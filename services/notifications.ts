@@ -198,14 +198,7 @@ export type ServerNotification = {
   created_at: string;
 };
 
-export type GetNotificationsResponse = {
-  page: number;
-  per_page: number;
-  total: number;
-  notifications: ServerNotification[];
-};
 
-// TODO [배포 전]: document.ts와 동일하게 인증 방식 통일 (쿠키 vs Bearer 토큰)
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -228,7 +221,8 @@ async function request<T>(
     throw new Error(`API 요청 실패: ${response.status} ${errorText}`);
   }
 
-  return response.json();
+  const json = await response.json();
+  return (json?.data ?? json) as T;
 }
 
 // 알림 목록 조회
@@ -236,7 +230,7 @@ export async function getServerNotifications(params: {
   status?: NotificationStatus;
   page?: number;
   per_page?: number;
-}) {
+}): Promise<ServerNotification[]> {
   const { status = "all", page = 1, per_page = 20 } = params;
 
   const query = new URLSearchParams({
@@ -245,7 +239,7 @@ export async function getServerNotifications(params: {
     per_page: String(per_page),
   });
 
-  return request<GetNotificationsResponse>(
+  return request<ServerNotification[]>(
     `/notifications?${query.toString()}`,
     { method: "GET" }
   );
@@ -267,12 +261,11 @@ export async function markAllServerNotificationsRead() {
 }
 
 // GET /documents/:documentId/alerts
-export async function getDocumentAlerts(documentId: string) {
-  const res = await request<{ alerts: DocumentAlert[] }>(
+export async function getDocumentAlerts(documentId: string): Promise<DocumentAlert[]> {
+  return request<DocumentAlert[]>(
     `/documents/${documentId}/alerts`,
     { method: "GET" }
   );
-  return res.alerts;
 }
 
 // POST /documents/:documentId/alerts

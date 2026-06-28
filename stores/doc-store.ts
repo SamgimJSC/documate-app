@@ -48,6 +48,7 @@ function toDocument(item: DocumentItem): Document {
     uploadedAt: item.createdAt?.split("T")[0] ?? today,
     expiryDate: expiry,
     imageUri: item.fileUrl,
+    fileType: item.fileType,
     tags: item.documentTags?.map((docTag) => docTag.tag.name) ?? [],
     isFavorite: item.isFavorite ?? false,
     status,

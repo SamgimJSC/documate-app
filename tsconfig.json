@@ -2,6 +2,7 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "jsx": "react-native",
     "paths": {
       "@/*": ["./*"]
     },
@@ -18,8 +19,9 @@
     "hooks/**/*.tsx",
     "services/**/*.ts",
     "services/**/*.tsx",
-    "store/**/*.ts",
-    "store/**/*.tsx",
+    "stores/**/*.ts",
+    "stores/**/*.tsx",
+    "utils/**/*.ts",
     "types/**/*.ts",
     "types/**/*.tsx",
     "expo-env.d.ts",

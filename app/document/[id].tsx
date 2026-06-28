@@ -65,7 +65,7 @@ export default function DocumentDetailScreen() {
         style: 'destructive',
         onPress: async () => {
           // 이 문서에 예약된 알림 모두 취소
-          for (const n of doc.notifications) {
+          for (const n of doc.notifications ?? []) {
             if (n.id) await cancelNotification(n.id);
           }
           removeDocument(doc.id);
@@ -119,18 +119,6 @@ export default function DocumentDetailScreen() {
               color={doc.isFavorite ? Colors.warning : Colors.gray400}
             />
           </TouchableOpacity>
-          {/*
-            TODO [서버 연동 시 확인]: 다운로드 파일 형식 / URL 정리 필요
-            - 현재 doc.imageUri를 받아서 무조건 `${doc.title}.pdf`로 저장 중인데,
-              imageUri는 사진(JPG/PNG)일 수도 있음. PDF가 아닌 파일을 .pdf로 저장하면
-              파일이 안 열릴 수 있음.
-            - 시원이 서버가 fileUrl / fileType을 실제로 뭘로 주는지 확인 후,
-              fileType(PDF/JPG/PNG)에 맞춰 확장자를 정해야 함.
-              예: const ext = doc.fileType === 'PDF' ? 'pdf' : doc.fileType.toLowerCase();
-                  downloadPdf(doc.fileUrl, `${doc.title}.${ext}`)
-            - 단, 로컬 Document 타입에는 현재 fileType 필드가 없음 → toDocument에서
-              fileType도 같이 내려주도록 추가 필요 (아래 doc-store 작업과 연계).
-          */}
           <TouchableOpacity
             disabled={downloading}
             onPress={async () => {
@@ -138,10 +126,16 @@ export default function DocumentDetailScreen() {
                 showToast('저장된 파일 URL이 없습니다.', 'error');
                 return;
               }
+              const ft = doc.fileType ?? 'PDF';
+              const ext = ft.toLowerCase();
+              const mimeType =
+                ft === 'JPG' ? 'image/jpeg' :
+                ft === 'PNG' ? 'image/png' :
+                'application/pdf';
               setDownloading(true);
               try {
-                const ok = await downloadPdf(doc.imageUri, `${doc.title}.pdf`);
-                if (ok) showToast('PDF가 저장되었습니다.', 'success');
+                const ok = await downloadPdf(doc.imageUri, `${doc.title}.${ext}`, mimeType);
+                if (ok) showToast('파일이 저장되었습니다.', 'success');
               } catch (e) {
                 showToast(getErrorMessage(e), 'error');
               } finally {
@@ -213,25 +207,25 @@ export default function DocumentDetailScreen() {
           </TouchableOpacity>
           {expandedInfo && (
             <View style={styles.infoGrid}>
-              {doc.extractedData.date && (
+              {doc.extractedData?.date && (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>날짜</Text>
                   <Text style={styles.infoValue}>{doc.extractedData.date}</Text>
                 </View>
               )}
-              {doc.extractedData.amount && (
+              {doc.extractedData?.amount && (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>금액</Text>
                   <Text style={styles.infoValue}>{doc.extractedData.amount}</Text>
                 </View>
               )}
-              {doc.extractedData.parties && doc.extractedData.parties.length > 0 && (
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>당사자</Text>
-                  <Text style={styles.infoValue}>{doc.extractedData.parties.join(', ')}</Text>
-                </View>
-              )}
-              {doc.extractedData.notes && (
+              {(doc.extractedData?.parties ?? []).length > 0 && (
+  <View style={styles.infoRow}>
+    <Text style={styles.infoLabel}>당사자</Text>
+    <Text style={styles.infoValue}>{(doc.extractedData?.parties ?? []).join(', ')}</Text>
+  </View>
+)}
+              {doc.extractedData?.notes && (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>비고</Text>
                   <Text style={styles.infoValue}>{doc.extractedData.notes}</Text>
@@ -254,8 +248,8 @@ export default function DocumentDetailScreen() {
               {serverAlerts.length === 0 ? (
                 <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>
               ) : (
-                serverAlerts.map((alert) => (
-                  <View key={alert.alert_id} style={styles.notifItem}>
+                serverAlerts.map((alert, index) => (
+                  <View key={alert.alert_id ?? String(index)} style={styles.notifItem}>
                     <View style={styles.notifInfo}>
                       <Text style={styles.notifLabel}>{alert.reason}</Text>
                       <Text style={styles.notifDate}>{alert.notify_date}</Text>
@@ -274,18 +268,18 @@ export default function DocumentDetailScreen() {
         </View>
 
         {/* 태그 */}
-        {doc.tags.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🏷️ 태그</Text>
-            <View style={styles.tagRow}>
-              {doc.tags.map((tag) => (
-                <View key={tag} style={styles.tag}>
-                  <Text style={styles.tagText}>#{tag}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
+        {(doc.tags ?? []).length > 0 && (
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>🏷️ 태그</Text>
+    <View style={styles.tagRow}>
+      {(doc.tags ?? []).map((tag, index) => (
+        <View key={tag || String(index)} style={styles.tag}>
+          <Text style={styles.tagText}>#{tag}</Text>
+        </View>
+      ))}
+    </View>
+  </View>
+)}
 
         <View style={{ height: Spacing.xl }} />
       </ScrollView>

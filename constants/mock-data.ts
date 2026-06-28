@@ -9,6 +9,7 @@ export interface Document {
   uploadedAt: string;
   expiryDate?: string;
   imageUri?: string;
+  fileType?: 'PDF' | 'JPG' | 'PNG';
   tags: string[];
   isFavorite: boolean;
   status: DocumentStatus;

@@ -1,8 +1,6 @@
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 
-console.log(process.env.EXPO_PUBLIC_API_URL);
-
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "";
 
 const axiosInstance = axios.create({
@@ -33,7 +31,6 @@ axiosInstance.interceptors.request.use(
 // 응답 인터셉터: 응답에서 토큰 꺼내서 SecureStore에 저장
 axiosInstance.interceptors.response.use(
   async (response) => {
-    console.log("응답 data:", JSON.stringify(response.data, null, 2)); // 확인용
     try {
       // 서버가 응답 body에 토큰 넣어주는 경우
       const token = response.data?.data?.accessToken;
@@ -46,7 +43,6 @@ axiosInstance.interceptors.response.use(
     return response.data;
   },
   async (error) => {
-    console.log(JSON.stringify(error?.response?.data, null, 2));
     if (error.response) {
       const status = error.response.status;
       if (status === 500) {
