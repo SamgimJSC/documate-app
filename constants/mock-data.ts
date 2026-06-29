@@ -12,6 +12,11 @@ export interface Document {
   fileType?: 'PDF' | 'JPG' | 'PNG';
   tags: string[];
   isFavorite: boolean;
+  isSecured?: boolean;
+  issueDate?: string;
+  aiStatus?: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+  aiConfidence?: number;
+  fileSizeBytes?: number;
   status: DocumentStatus;
   extractedData: {
     date?: string;

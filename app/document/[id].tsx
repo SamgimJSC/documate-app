@@ -6,13 +6,15 @@ import {
   cancelNotification,
   deleteAlert,
   getDocumentAlerts,
+  updateAlert,
 } from '@/services/notifications';
+import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { showToast } from '@/stores/toast-store';
 import { getErrorMessage } from '@/utils/error';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,22 +22,70 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+const AI_STATUS_LABELS: Record<string, string> = {
+  PENDING: '대기 중',
+  PROCESSING: 'PROCESSING',
+  DONE: '완료',
+  FAILED: '실패',
+};
+const AI_STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'error' | 'info' | 'gray'> = {
+  PENDING: 'gray',
+  PROCESSING: 'warning',
+  DONE: 'success',
+  FAILED: 'error',
+};
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [downloading, setDownloading] = useState(false);
-  const { documents, toggleFavorite, removeDocument } = useDocStore();
+  const [fetching, setFetching] = useState(false);
+  const [isPinUnlocked, setIsPinUnlocked] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const hasFetchedRef = useRef(false);
+  const { documents, toggleFavorite, removeDocument, fetchDocuments } = useDocStore();
+  const { pin: storedPin } = useAuthStore();
   const doc = documents.find((d) => d.id === id);
 
   const [expandedInfo, setExpandedInfo] = useState(true);
-  const [expandedNotif, setExpandedNotif] = useState(true);
   const [serverAlerts, setServerAlerts] = useState<DocumentAlert[]>([]);
+
+  const handlePinDigit = (digit: string) => {
+    if (pinInput.length >= 4) return;
+    const next = pinInput + digit;
+    setPinInput(next);
+    setPinError(false);
+    if (next.length === 4) {
+      if (next === storedPin) {
+        setIsPinUnlocked(true);
+      } else {
+        setPinError(true);
+        setTimeout(() => { setPinInput(''); setPinError(false); }, 600);
+      }
+    }
+  };
+
+  // 알림 탭 등으로 스토어가 비어있는 채 진입할 경우 문서 목록을 새로 가져옴
+  useEffect(() => {
+    if (!doc && !hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      setFetching(true);
+      fetchDocuments().finally(() => setFetching(false));
+    }
+  }, []);
 
   useEffect(() => {
     if (!doc) return;
@@ -45,6 +95,15 @@ export default function DocumentDetailScreen() {
   }, [doc?.id]);
 
   if (!doc) {
+    if (fetching) {
+      return (
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+          </View>
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
@@ -52,6 +111,66 @@ export default function DocumentDetailScreen() {
           <TouchableOpacity onPress={() => router.back()}>
             <Text style={styles.backLink}>돌아가기</Text>
           </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (doc.isSecured && !isPinUnlocked) {
+    const PIN_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','del']];
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.pinHeader}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={Colors.gray700} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.pinBody}>
+          <View style={styles.pinIconWrap}>
+            <Ionicons name="lock-closed" size={32} color={Colors.primary} />
+          </View>
+          <Text style={styles.pinTitle}>잠긴 문서입니다</Text>
+          <Text style={styles.pinDocName} numberOfLines={1}>{doc.title}</Text>
+          <View style={styles.pinDots}>
+            {[0, 1, 2, 3].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.pinDot,
+                  pinInput.length > i && styles.pinDotFilled,
+                  pinError && styles.pinDotError,
+                ]}
+              />
+            ))}
+          </View>
+          {pinError && <Text style={styles.pinErrorText}>PIN이 올바르지 않습니다</Text>}
+          <View style={styles.pinPad}>
+            {PIN_ROWS.map((row, ri) => (
+              <View key={ri} style={styles.pinRow}>
+                {row.map((key) =>
+                  key === '' ? (
+                    <View key="empty" style={styles.pinKey} />
+                  ) : key === 'del' ? (
+                    <TouchableOpacity
+                      key="del"
+                      style={styles.pinKey}
+                      onPress={() => setPinInput((p) => p.slice(0, -1))}
+                    >
+                      <Ionicons name="backspace-outline" size={22} color={Colors.gray700} />
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.pinKey}
+                      onPress={() => handlePinDigit(key)}
+                    >
+                      <Text style={styles.pinKeyText}>{key}</Text>
+                    </TouchableOpacity>
+                  )
+                )}
+              </View>
+            ))}
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -81,6 +200,21 @@ export default function DocumentDetailScreen() {
       await deleteAlert(alertId);
     } catch (e) {
       console.log('알림 삭제 실패:', e);
+    }
+  };
+
+  const handleToggleAlertPush = async (alertId: string, currentValue: boolean) => {
+    const newValue = !currentValue;
+    setServerAlerts((prev) =>
+      prev.map((a) => a.alert_id === alertId ? { ...a, channel_app_push: newValue } : a)
+    );
+    try {
+      await updateAlert(alertId, { channel_app_push: newValue });
+    } catch (e) {
+      setServerAlerts((prev) =>
+        prev.map((a) => a.alert_id === alertId ? { ...a, channel_app_push: currentValue } : a)
+      );
+      console.log('알림 토글 실패:', e);
     }
   };
 
@@ -156,17 +290,60 @@ export default function DocumentDetailScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 문서 프리뷰 */}
-        <View style={styles.previewCard}>
-          <Text style={styles.previewIcon}>{categoryIcons[doc.category] ?? '📄'}</Text>
-          <View style={styles.previewInfo}>
-            <Text style={styles.previewTitle}>{doc.title}</Text>
-            <View style={styles.previewMeta}>
-              <Badge label={doc.category} variant="info" />
-              {doc.status === 'expiring_soon' && <Badge label="만료 임박" variant="warning" />}
-              {doc.status === 'expired' && <Badge label="만료됨" variant="error" />}
+        {/* 문서 메타 정보 */}
+        <View style={styles.metaCard}>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaKey}>카테고리</Text>
+            <View style={styles.metaValueRow}>
+              <Text style={styles.metaVal}>{doc.category}</Text>
+              <TouchableOpacity onPress={() => router.push(`/document/edit/${doc.id}` as any)}>
+                <Text style={styles.metaEditBtn}>수정</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.previewDate}>업로드: {doc.uploadedAt}</Text>
+          </View>
+          {doc.fileType && (
+            <View style={styles.metaRow}>
+              <Text style={styles.metaKey}>파일 정보</Text>
+              <Text style={styles.metaVal}>
+                {doc.fileType}{doc.fileSizeBytes ? ` · ${formatFileSize(doc.fileSizeBytes)}` : ''}
+              </Text>
+            </View>
+          )}
+          {doc.issueDate && (
+            <View style={styles.metaRow}>
+              <Text style={styles.metaKey}>발급일</Text>
+              <Text style={styles.metaVal}>{doc.issueDate}</Text>
+            </View>
+          )}
+          <View style={styles.metaRow}>
+            <Text style={styles.metaKey}>만료일</Text>
+            <Text style={[
+              styles.metaVal,
+              daysUntil !== null && daysUntil <= 0 ? styles.metaValError :
+              daysUntil !== null && daysUntil <= 30 ? styles.metaValWarning : undefined,
+            ]}>
+              {doc.expiryDate
+                ? `${doc.expiryDate}${daysUntil !== null ? (daysUntil <= 0 ? ' (만료됨)' : ` (${daysUntil}일 후)`) : ''}`
+                : '-'}
+            </Text>
+          </View>
+          {doc.aiStatus && (
+            <View style={styles.metaRow}>
+              <Text style={styles.metaKey}>AI 상태</Text>
+              <View style={styles.metaValueRow}>
+                <Badge
+                  label={AI_STATUS_LABELS[doc.aiStatus] ?? doc.aiStatus}
+                  variant={AI_STATUS_VARIANTS[doc.aiStatus] ?? 'gray'}
+                />
+                {doc.aiConfidence != null && (
+                  <Text style={styles.aiConfidenceText}>신뢰도 {Math.round(doc.aiConfidence * 100)}%</Text>
+                )}
+              </View>
+            </View>
+          )}
+          <View style={styles.metaRow}>
+            <Text style={styles.metaKey}>업로드일</Text>
+            <Text style={styles.metaVal}>{doc.uploadedAt}</Text>
           </View>
         </View>
 
@@ -174,26 +351,6 @@ export default function DocumentDetailScreen() {
         {doc.imageUri && (
           <View style={styles.imageCard}>
             <Image source={{ uri: doc.imageUri }} style={styles.docImage} resizeMode="cover" />
-          </View>
-        )}
-
-        {/* 만료일 정보 */}
-        {doc.expiryDate && (
-          <View style={[styles.expiryCard, daysUntil !== null && daysUntil <= 30 ? styles.expiryCardUrgent : styles.expiryCardNormal]}>
-            <Ionicons
-              name="calendar-outline"
-              size={20}
-              color={daysUntil !== null && daysUntil <= 30 ? Colors.warning : Colors.primary}
-            />
-            <View>
-              <Text style={styles.expiryLabel}>만료일</Text>
-              <Text style={styles.expiryDate}>{doc.expiryDate}</Text>
-              {daysUntil !== null && (
-                <Text style={[styles.expiryDays, daysUntil <= 0 && { color: Colors.error }]}>
-                  {daysUntil <= 0 ? '이미 만료됨' : `${daysUntil}일 후 만료`}
-                </Text>
-              )}
-            </View>
           </View>
         )}
 
@@ -237,32 +394,35 @@ export default function DocumentDetailScreen() {
 
         {/* 알림 설정 */}
         <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.sectionHeader}
-            onPress={() => setExpandedNotif(!expandedNotif)}>
-            <Text style={styles.sectionTitle}>🔔 알림 설정</Text>
-            <Ionicons name={expandedNotif ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.gray400} />
-          </TouchableOpacity>
-          {expandedNotif && (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>알림 설정</Text>
+            <TouchableOpacity onPress={() => router.push(`/document/edit/${doc.id}` as any)}>
+              <Text style={styles.notifAddText}>+ 알림 추가</Text>
+            </TouchableOpacity>
+          </View>
+          {serverAlerts.length === 0 ? (
+            <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>
+          ) : (
             <View style={styles.notifList}>
-              {serverAlerts.length === 0 ? (
-                <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>
-              ) : (
-                serverAlerts.map((alert, index) => (
-                  <View key={alert.alert_id ?? String(index)} style={styles.notifItem}>
-                    <View style={styles.notifInfo}>
-                      <Text style={styles.notifLabel}>{alert.reason}</Text>
-                      <Text style={styles.notifDate}>{alert.notify_date}</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => handleDeleteAlert(alert.alert_id)}
-                      style={styles.notifDeleteBtn}
-                      hitSlop={8}>
-                      <Ionicons name="trash-outline" size={18} color={Colors.error} />
-                    </TouchableOpacity>
+              {serverAlerts.map((alert, index) => (
+                <View key={alert.alert_id ?? String(index)} style={styles.notifItem}>
+                  <View style={styles.notifInfo}>
+                    <Text style={styles.notifLabel}>{(alert.notify_date ?? '').split('T')[0]}</Text>
                   </View>
-                ))
-              )}
+                  <Switch
+                    value={!!alert.channel_app_push}
+                    onValueChange={() => handleToggleAlertPush(alert.alert_id, !!alert.channel_app_push)}
+                    trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
+                    thumbColor={alert.channel_app_push ? Colors.primary : Colors.gray400}
+                  />
+                  <TouchableOpacity
+                    onPress={() => handleDeleteAlert(alert.alert_id)}
+                    style={styles.notifDeleteBtn}
+                    hitSlop={8}>
+                    <Ionicons name="trash-outline" size={18} color={Colors.error} />
+                  </TouchableOpacity>
+                </View>
+              ))}
             </View>
           )}
         </View>
@@ -307,23 +467,24 @@ const styles = StyleSheet.create({
   headerBtn: { padding: Spacing.sm },
   scroll: { flex: 1 },
   scrollContent: { padding: Spacing.lg, gap: Spacing.md },
-  previewCard: {
+  metaCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     padding: Spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: Spacing.md,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
       android: { elevation: 2 },
     }),
   },
-  previewIcon: { fontSize: 48 },
-  previewInfo: { flex: 1, gap: Spacing.xs },
-  previewTitle: { fontSize: 16, fontWeight: '700', color: Colors.gray900 },
-  previewMeta: { flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap' },
-  previewDate: { fontSize: 12, color: Colors.gray400 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 24 },
+  metaKey: { fontSize: 13, color: Colors.gray500, width: 64 },
+  metaVal: { flex: 1, fontSize: 13, color: Colors.gray900, fontWeight: '500', textAlign: 'right' },
+  metaValError: { color: Colors.error },
+  metaValWarning: { color: Colors.warning },
+  metaValueRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: Spacing.sm },
+  metaEditBtn: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
+  aiConfidenceText: { fontSize: 12, color: Colors.gray500 },
   imageCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
@@ -334,12 +495,6 @@ const styles = StyleSheet.create({
     }),
   },
   docImage: { width: '100%', height: 220, borderRadius: Radius.md, backgroundColor: Colors.gray100 },
-  expiryCard: { borderRadius: Radius.lg, padding: Spacing.lg, flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  expiryCardNormal: { backgroundColor: Colors.primaryLight },
-  expiryCardUrgent: { backgroundColor: Colors.warningLight },
-  expiryLabel: { fontSize: 12, color: Colors.gray500 },
-  expiryDate: { fontSize: 16, fontWeight: '700', color: Colors.gray900 },
-  expiryDays: { fontSize: 13, color: Colors.warning, fontWeight: '500' },
   section: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
@@ -361,9 +516,63 @@ const styles = StyleSheet.create({
   notifInfo: { flex: 1 },
   notifLabel: { fontSize: 14, color: Colors.gray800, fontWeight: '500' },
   notifDate: { fontSize: 12, color: Colors.gray400 },
-  notifEmpty: { fontSize: 14, color: Colors.gray400 },
+  notifEmpty: { fontSize: 13, color: Colors.gray400 },
   notifDeleteBtn: { padding: 4 },
+  notifAddText: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
   tag: { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: Spacing.sm, paddingVertical: 4 },
   tagText: { fontSize: 13, color: Colors.primary, fontWeight: '500' },
+
+  // PIN 잠금 화면
+  pinHeader: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    backgroundColor: Colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray100,
+  },
+  pinBody: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: 40,
+  },
+  pinIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.sm,
+  },
+  pinTitle: { fontSize: 20, fontWeight: '700', color: Colors.gray900 },
+  pinDocName: { fontSize: 14, color: Colors.gray500, maxWidth: 260, textAlign: 'center' },
+  pinDots: { flexDirection: 'row', gap: 16, marginVertical: Spacing.md },
+  pinDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: Colors.gray300,
+    backgroundColor: 'transparent',
+  },
+  pinDotFilled: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  pinDotError: { borderColor: Colors.error, backgroundColor: Colors.error },
+  pinErrorText: { fontSize: 13, color: Colors.error, marginTop: -Spacing.xs },
+  pinPad: { width: '100%', maxWidth: 280, gap: 8, marginTop: Spacing.sm },
+  pinRow: { flexDirection: 'row', gap: 8 },
+  pinKey: {
+    flex: 1,
+    height: 64,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.gray100,
+  },
+  pinKeyText: { fontSize: 22, fontWeight: '600', color: Colors.gray900 },
 });
