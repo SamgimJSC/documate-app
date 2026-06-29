@@ -55,6 +55,7 @@ export default function CameraScreen() {
       category: '기타',
       uploadedAt: today,
       tags: [],
+      documentTags: [],
       isFavorite: false,
       status: 'active',
       extractedData: {},

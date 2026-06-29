@@ -53,6 +53,8 @@ function toDocument(item: DocumentItem): Document {
     isFavorite: item.isFavorite ?? false,
     isSecured: false,
     issueDate: item.issueDate ?? undefined,
+    renewalDate: item.renewalDate ?? undefined,
+    documentTags: item.documentTags?.map((dt) => ({ name: dt.tag.name, tagId: dt.tag.tagId })) ?? [],
     aiStatus: item.aiStatus,
     aiConfidence: item.aiConfidence ?? undefined,
     fileSizeBytes: item.fileSizeBytes ? Number(item.fileSizeBytes) : undefined,

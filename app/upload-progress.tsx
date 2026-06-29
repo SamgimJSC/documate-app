@@ -1,6 +1,7 @@
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   AiStatusResponse,
+  TempFileType,
   createTempUpload,
   pollUntilDone,
   requestAiAnalysis,
@@ -65,13 +66,14 @@ export default function UploadProgressScreen() {
 
       for (let i = 0; i < imageUris.length; i++) {
         const uri = imageUris[i];
-        const mimeType = 'image/jpeg';
-        const fileName = `upload_${Date.now()}_${i}.jpg`;
+        // uri 확장자로 fileType 판별 (기본 JPG)
+        const fileType: TempFileType = uri.toLowerCase().endsWith('.png') ? 'PNG' : 'JPG';
+        const mimeType = fileType === 'PNG' ? 'image/png' : 'image/jpeg';
 
         try {
           // 1단계: presigned URL + tempDocumentId 발급
           updateStatus(i, 'uploading');
-          const { tempDocumentId, uploadUrl } = await createTempUpload({ fileName, mimeType });
+          const { tempDocumentId, uploadUrl } = await createTempUpload({ fileType, pageCount: 1 });
 
           // 2단계: S3에 직접 업로드
           await uploadToS3(uri, uploadUrl, mimeType);

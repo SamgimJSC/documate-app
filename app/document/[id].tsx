@@ -1,4 +1,4 @@
-import { Badge } from '@/components/common/badge';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { downloadPdf } from '@/services/download';
 import {
@@ -29,18 +29,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const AI_STATUS_LABELS: Record<string, string> = {
-  PENDING: '대기 중',
-  PROCESSING: 'PROCESSING',
-  DONE: '완료',
-  FAILED: '실패',
-};
-const AI_STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'error' | 'info' | 'gray'> = {
-  PENDING: 'gray',
-  PROCESSING: 'warning',
-  DONE: 'success',
-  FAILED: 'error',
-};
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
@@ -60,7 +48,6 @@ export default function DocumentDetailScreen() {
   const { pin: storedPin } = useAuthStore();
   const doc = documents.find((d) => d.id === id);
 
-  const [expandedInfo, setExpandedInfo] = useState(true);
   const [serverAlerts, setServerAlerts] = useState<DocumentAlert[]>([]);
 
   const handlePinDigit = (digit: string) => {
@@ -127,7 +114,7 @@ export default function DocumentDetailScreen() {
         </View>
         <View style={styles.pinBody}>
           <View style={styles.pinIconWrap}>
-            <Ionicons name="lock-closed" size={32} color={Colors.primary} />
+            <IconSymbol name="lock.fill" size={32} color={Colors.primary} />
           </View>
           <Text style={styles.pinTitle}>잠긴 문서입니다</Text>
           <Text style={styles.pinDocName} numberOfLines={1}>{doc.title}</Text>
@@ -327,18 +314,10 @@ export default function DocumentDetailScreen() {
                 : '-'}
             </Text>
           </View>
-          {doc.aiStatus && (
+          {doc.renewalDate && (
             <View style={styles.metaRow}>
-              <Text style={styles.metaKey}>AI 상태</Text>
-              <View style={styles.metaValueRow}>
-                <Badge
-                  label={AI_STATUS_LABELS[doc.aiStatus] ?? doc.aiStatus}
-                  variant={AI_STATUS_VARIANTS[doc.aiStatus] ?? 'gray'}
-                />
-                {doc.aiConfidence != null && (
-                  <Text style={styles.aiConfidenceText}>신뢰도 {Math.round(doc.aiConfidence * 100)}%</Text>
-                )}
-              </View>
+              <Text style={styles.metaKey}>갱신일</Text>
+              <Text style={styles.metaVal}>{doc.renewalDate}</Text>
             </View>
           )}
           <View style={styles.metaRow}>
@@ -356,40 +335,33 @@ export default function DocumentDetailScreen() {
 
         {/* AI 추출 정보 */}
         <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.sectionHeader}
-            onPress={() => setExpandedInfo(!expandedInfo)}>
-            <Text style={styles.sectionTitle}>📊 AI 추출 정보</Text>
-            <Ionicons name={expandedInfo ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.gray400} />
-          </TouchableOpacity>
-          {expandedInfo && (
-            <View style={styles.infoGrid}>
-              {doc.extractedData?.date && (
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>날짜</Text>
-                  <Text style={styles.infoValue}>{doc.extractedData.date}</Text>
-                </View>
-              )}
-              {doc.extractedData?.amount && (
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>금액</Text>
-                  <Text style={styles.infoValue}>{doc.extractedData.amount}</Text>
-                </View>
-              )}
-              {(doc.extractedData?.parties ?? []).length > 0 && (
-  <View style={styles.infoRow}>
-    <Text style={styles.infoLabel}>당사자</Text>
-    <Text style={styles.infoValue}>{(doc.extractedData?.parties ?? []).join(', ')}</Text>
-  </View>
-)}
-              {doc.extractedData?.notes && (
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>비고</Text>
-                  <Text style={styles.infoValue}>{doc.extractedData.notes}</Text>
-                </View>
-              )}
-            </View>
-          )}
+          <Text style={styles.sectionTitle}>AI 추출 정보</Text>
+          <View style={styles.infoGrid}>
+            {doc.extractedData?.date && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>날짜</Text>
+                <Text style={styles.infoValue}>{doc.extractedData.date}</Text>
+              </View>
+            )}
+            {doc.extractedData?.amount && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>금액</Text>
+                <Text style={styles.infoValue}>{doc.extractedData.amount}</Text>
+              </View>
+            )}
+            {(doc.extractedData?.parties ?? []).length > 0 && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>당사자</Text>
+                <Text style={styles.infoValue}>{(doc.extractedData?.parties ?? []).join(', ')}</Text>
+              </View>
+            )}
+            {doc.extractedData?.notes && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>메모</Text>
+                <Text style={styles.infoValue}>{doc.extractedData.notes}</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* 알림 설정 */}
@@ -400,37 +372,41 @@ export default function DocumentDetailScreen() {
               <Text style={styles.notifAddText}>+ 알림 추가</Text>
             </TouchableOpacity>
           </View>
-          {serverAlerts.length === 0 ? (
-            <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>
-          ) : (
-            <View style={styles.notifList}>
-              {serverAlerts.map((alert, index) => (
-                <View key={alert.alert_id ?? String(index)} style={styles.notifItem}>
-                  <View style={styles.notifInfo}>
-                    <Text style={styles.notifLabel}>{(alert.notify_date ?? '').split('T')[0]}</Text>
+          {(() => {
+            const validAlerts = serverAlerts.filter((a) => !!a.notify_date);
+            if (validAlerts.length === 0) {
+              return <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>;
+            }
+            return (
+              <View style={styles.notifList}>
+                {validAlerts.map((alert, index) => (
+                  <View key={alert.alert_id ?? String(index)} style={styles.notifItem}>
+                    <View style={styles.notifInfo}>
+                      <Text style={styles.notifLabel}>{alert.notify_date!.split('T')[0]}</Text>
+                    </View>
+                    <Switch
+                      value={!!alert.channel_app_push}
+                      onValueChange={() => handleToggleAlertPush(alert.alert_id, !!alert.channel_app_push)}
+                      trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
+                      thumbColor={alert.channel_app_push ? Colors.primary : Colors.gray400}
+                    />
+                    <TouchableOpacity
+                      onPress={() => handleDeleteAlert(alert.alert_id)}
+                      style={styles.notifDeleteBtn}
+                      hitSlop={8}>
+                      <Ionicons name="trash-outline" size={18} color={Colors.error} />
+                    </TouchableOpacity>
                   </View>
-                  <Switch
-                    value={!!alert.channel_app_push}
-                    onValueChange={() => handleToggleAlertPush(alert.alert_id, !!alert.channel_app_push)}
-                    trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
-                    thumbColor={alert.channel_app_push ? Colors.primary : Colors.gray400}
-                  />
-                  <TouchableOpacity
-                    onPress={() => handleDeleteAlert(alert.alert_id)}
-                    style={styles.notifDeleteBtn}
-                    hitSlop={8}>
-                    <Ionicons name="trash-outline" size={18} color={Colors.error} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
+                ))}
+              </View>
+            );
+          })()}
         </View>
 
         {/* 태그 */}
         {(doc.tags ?? []).length > 0 && (
   <View style={styles.section}>
-    <Text style={styles.sectionTitle}>🏷️ 태그</Text>
+    <Text style={styles.sectionTitle}>태그</Text>
     <View style={styles.tagRow}>
       {(doc.tags ?? []).map((tag, index) => (
         <View key={tag || String(index)} style={styles.tag}>
@@ -484,7 +460,6 @@ const styles = StyleSheet.create({
   metaValWarning: { color: Colors.warning },
   metaValueRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: Spacing.sm },
   metaEditBtn: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
-  aiConfidenceText: { fontSize: 12, color: Colors.gray500 },
   imageCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,

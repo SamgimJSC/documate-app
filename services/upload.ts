@@ -1,5 +1,6 @@
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, '');
 
+export type TempFileType = 'JPG' | 'PNG';
 export type TempDocumentType = 'DOCUMENT' | 'RECEIPT';
 export type AiStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
 
@@ -34,9 +35,8 @@ async function uploadRequest<T>(path: string, options: RequestInit = {}): Promis
 
 // POST /uploads/temp-document → presigned URL + tempDocumentId 발급
 export async function createTempUpload(params: {
-  fileName: string;
-  mimeType: string;
-  fileType?: TempDocumentType;
+  fileType: TempFileType;
+  pageCount: number;
 }): Promise<TempUploadResponse> {
   return uploadRequest('/uploads/temp-document', {
     method: 'POST',
