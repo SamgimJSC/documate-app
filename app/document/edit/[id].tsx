@@ -1,6 +1,10 @@
 import { DocumentCategory } from '@/constants/mock-data';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { updateDocument as apiUpdateDocument } from '@/services/document';
+import {
+  addDocumentTag,
+  deleteDocumentTag,
+  updateDocument as apiUpdateDocument,
+} from '@/services/document';
 import { cancelNotification, createDocumentAlert, scheduleExpiryNotification } from '@/services/notifications';
 import { useDocStore } from '@/stores/doc-store';
 import { showToast } from '@/stores/toast-store';
@@ -25,7 +29,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const CATEGORIES: DocumentCategory[] = ['계약서', '보증서', '처방전', '보험서류', '기타'];
 
-// 알림 시점 옵션: 만료일 기준으로 며칠 전에 알릴지
 const NOTI_OPTIONS: { days: number; label: string }[] = [
   { days: 30, label: '만료 1개월 전' },
   { days: 14, label: '만료 2주 전' },
@@ -34,7 +37,6 @@ const NOTI_OPTIONS: { days: number; label: string }[] = [
   { days: 1, label: '만료 1일 전' },
 ];
 
-// 'YYYY-MM-DD' 문자열에서 days만큼 뺀 날짜를 'YYYY-MM-DD'로 반환
 function subtractDays(dateStr: string, days: number): string {
   const d = new Date(dateStr);
   d.setDate(d.getDate() - days);
@@ -44,20 +46,25 @@ function subtractDays(dateStr: string, days: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// 알림 날짜(YYYY-MM-DD)의 오전 9시가 이미 지났는지 검사
 function isNotiDatePast(dateStr: string): boolean {
   const target = new Date(dateStr);
   target.setHours(9, 0, 0, 0);
   return target.getTime() <= Date.now();
 }
 
-// 사용자가 입력한 값에서 숫자만 뽑아 YYYY-MM-DD 형태로 대시 자동 삽입
 function formatDateInput(text: string): string {
-  const digits = text.replace(/\D/g, '').slice(0, 8); // 숫자만, 최대 8자리
+  const digits = text.replace(/\D/g, '').slice(0, 8);
   if (digits.length <= 4) return digits;
   if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
   return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
 }
+
+const FILE_TYPE_LABELS: Record<string, string> = {
+  PDF: 'PDF',
+  JPG: 'JPG 이미지',
+  PNG: 'PNG 이미지',
+};
+
 
 export default function DocumentEditScreen() {
   const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
@@ -65,23 +72,37 @@ export default function DocumentEditScreen() {
   const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
-  const isManual = manual === '1'; // 수기 등록으로 들어온 경우
+  const isManual = manual === '1';
 
-  // 입력값 상태 (기존 문서 값으로 초기화)
   const [title, setTitle] = useState(doc?.title ?? '');
   const [category, setCategory] = useState<DocumentCategory>(doc?.category ?? '기타');
+  const [issueDate, setIssueDate] = useState(doc?.issueDate ?? '');
   const [expiryDate, setExpiryDate] = useState(doc?.expiryDate ?? '');
-  const [notes, setNotes] = useState(doc?.extractedData?.notes ?? '');
+  const [renewalDate, setRenewalDate] = useState(doc?.renewalDate ?? '');
   const [imageUri, setImageUri] = useState<string | undefined>(doc?.imageUri);
 
-  // 알림 시점(며칠 전). null = 알림 없음. 기존 문서의 첫 알림에서 일수 추정
+  // AI 추출 정보 (편집 가능)
+  const [extractedDate, setExtractedDate] = useState(doc?.extractedData?.date ?? '');
+  const [extractedAmount, setExtractedAmount] = useState(doc?.extractedData?.amount ?? '');
+  const [extractedParties, setExtractedParties] = useState(
+    (doc?.extractedData?.parties ?? []).join(', ')
+  );
+  const [extractedNotes, setExtractedNotes] = useState(doc?.extractedData?.notes ?? '');
+  const [notesHeight, setNotesHeight] = useState(64);
+
+  // 태그: 기존 서버 태그 (tagId 포함) + 새로 추가한 것 (tagId 없음)
+  const [localTags, setLocalTags] = useState<{ name: string; tagId?: string }[]>(
+    () => doc?.documentTags ?? []
+  );
+  const [tagInput, setTagInput] = useState('');
+
+
   const initialNotiDays = (() => {
     const first = doc?.notifications?.[0];
     if (!first || !doc?.expiryDate) return null;
     const exp = new Date(doc.expiryDate).getTime();
     const noti = new Date(first.date).getTime();
     const diff = Math.round((exp - noti) / (1000 * 60 * 60 * 24));
-    // 옵션에 있는 값이면 그걸로, 아니면 null
     return NOTI_OPTIONS.some((o) => o.days === diff) ? diff : null;
   })();
   const [notiDays, setNotiDays] = useState<number | null>(initialNotiDays);
@@ -102,14 +123,12 @@ export default function DocumentEditScreen() {
     );
   }
 
-  // 갤러리에서 사진 선택
   const pickFromGallery = async () => {
     setPhotoSheetOpen(false);
     const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
     if (!result.canceled) setImageUri(result.assets[0].uri);
   };
 
-  // 카메라로 촬영
   const takePhoto = async () => {
     setPhotoSheetOpen(false);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -121,10 +140,21 @@ export default function DocumentEditScreen() {
     if (!result.canceled) setImageUri(result.assets[0].uri);
   };
 
-  // 사진 첨부 방법 선택 → 바텀시트 열기
-  const handleAttachPhoto = () => setPhotoSheetOpen(true);
+  const handleAddTag = () => {
+    const name = tagInput.trim();
+    if (!name) return;
+    if (localTags.some((t) => t.name === name)) {
+      setTagInput('');
+      return;
+    }
+    setLocalTags((prev) => [...prev, { name }]);
+    setTagInput('');
+  };
 
-  // 제목 없이 화면을 떠날 때: 수기 등록으로 만든 빈 문서면 자동 삭제
+  const handleRemoveTag = (index: number) => {
+    setLocalTags((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleClose = () => {
     if (isManual && !title.trim()) {
       removeDocument(doc.id);
@@ -132,83 +162,87 @@ export default function DocumentEditScreen() {
     router.back();
   };
 
-  // 실제 저장 + 알림 예약 + 상세 페이지로 이동
   const commitSave = async () => {
-    // 기존에 예약된 알림이 있으면 먼저 취소 (id가 예약 식별자)
     for (const n of doc.notifications) {
       if (n.id) await cancelNotification(n.id);
     }
 
-    // 알림 배열 구성: 만료일 + 알림 시점이 모두 있을 때만 생성 + 실제 예약
     let notifications = doc.notifications;
     if (expiryDate.trim() && notiDays !== null) {
       const option = NOTI_OPTIONS.find((o) => o.days === notiDays);
       const notiDate = subtractDays(expiryDate.trim(), notiDays);
       const label = option ? option.label + ' 알림' : '만료 알림';
-
-      // 실제 기기 알림 예약 (과거 날짜면 null 반환 → 예약은 안 되지만 정보는 저장)
       const scheduledId = await scheduleExpiryNotification(
         notiDate,
         title.trim() || '문서 만료 알림',
         `"${title.trim()}" 문서가 곧 만료됩니다.`
       );
-
-      notifications = [
-        {
-          id: scheduledId ?? `n-${Date.now()}`,
-          date: notiDate,
-          label,
-          enabled: true,
-        },
-      ];
+      notifications = [{ id: scheduledId ?? `n-${Date.now()}`, date: notiDate, label, enabled: true }];
     } else {
-      // 알림 없음 선택 시 기존 알림 제거
       notifications = [];
     }
 
-    // 로컬 상태 업데이트
+    const matchedCat = categories.find((c) => c.name === category);
+
+    const newExtractedData = {
+      ...doc.extractedData,
+      date: extractedDate.trim() || undefined,
+      amount: extractedAmount.trim() || undefined,
+      parties: extractedParties.trim() ? extractedParties.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      notes: extractedNotes.trim() || undefined,
+    };
+
     updateDocument(doc.id, {
       title: title.trim(),
       category,
+      issueDate: issueDate.trim() || undefined,
       expiryDate: expiryDate.trim() || undefined,
-      extractedData: { ...doc.extractedData, notes: notes.trim() || undefined },
+      renewalDate: renewalDate.trim() || undefined,
+      extractedData: newExtractedData,
       notifications,
       imageUri,
+      tags: localTags.map((t) => t.name),
+      documentTags: localTags.filter((t) => t.tagId) as { name: string; tagId: string }[],
     });
 
-    // 서버에 반영할 때 사용할 실제 문서 id (생성 성공 시 진짜 id로 교체됨)
     let serverId = doc.id;
     const isLocalDraft = doc.id.startsWith('doc-');
-    const matchedCat = categories.find((c) => c.name === category);
 
     try {
       if (isLocalDraft) {
-        // 수기 등록 → 서버에 새 문서 생성
-        // fileUrl/fileName/fileType은 사진 없는 수기 문서 기준 placeholder.
-        // (사진이 있으면 아래 upload-progress 흐름에서 별도 업로드로 채워짐)
         const newId = await createDocumentOnServer({
           title: title.trim(),
           fileUrl: '',
           fileName: `${title.trim() || 'document'}.manual`,
           fileType: 'PDF',
+          issueDate: issueDate.trim() || undefined,
           expiryDate: expiryDate.trim() || undefined,
-          ocrText: notes.trim() || undefined,
+          renewalDate: renewalDate.trim() || undefined,
           ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
         });
-        // 로컬 임시 id를 서버가 준 진짜 id로 교체
         replaceDocumentId(doc.id, newId);
         serverId = newId;
       } else {
-        // 기존 문서 → 수정
         await apiUpdateDocument(doc.id, {
           title: title.trim(),
+          issueDate: issueDate.trim() || undefined,
           expiryDate: expiryDate.trim() || undefined,
-          ocrText: notes.trim() || undefined,
+          renewalDate: renewalDate.trim() || undefined,
+          extractedData: newExtractedData,
           ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
         });
       }
 
-      // 서버 알림 생성 (만료일 + 알림 시점이 모두 설정된 경우)
+      // 태그 동기화: 원본 tagId 가진 것 중 제거된 것 삭제, tagId 없는 새 태그 추가
+      const remainingTagIds = new Set(localTags.filter((t) => t.tagId).map((t) => t.tagId!));
+      const toDelete = doc.documentTags.filter((t) => !remainingTagIds.has(t.tagId));
+      const toAdd = localTags.filter((t) => !t.tagId);
+
+      await Promise.allSettled([
+        ...toDelete.map((t) => deleteDocumentTag(serverId, t.tagId)),
+        ...toAdd.map((t) => addDocumentTag(serverId, t.name)),
+      ]);
+
       if (expiryDate.trim() && notiDays !== null) {
         try {
           const option = NOTI_OPTIONS.find((o) => o.days === notiDays);
@@ -226,61 +260,48 @@ export default function DocumentEditScreen() {
       }
     } catch (e) {
       console.error('문서 저장 API 실패:', e);
-      // 생성 실패 시: 서버에 문서가 안 만들어졌으므로 사용자에게 알리고 중단
       if (isLocalDraft) {
         showToast(getErrorMessage(e), 'error');
         return;
       }
-      // 수정 실패: 로컬 반영은 됐지만 서버 반영 실패 → 가볍게 안내만 (화면 이동은 진행)
       showToast(getErrorMessage(e), 'error');
     }
 
-    // 수기 등록이고 사진이 있으면 업로드 진행 화면을 거쳐 상세로
-    if (isManual && imageUri) {
-      router.replace({
-        pathname: '/upload-progress',
-        params: { uris: JSON.stringify([imageUri]), manual: '1', docId: serverId },
-      });
-      return;
-    }
-
-    // 그 외에는 바로 상세 페이지로
     router.replace(`/document/${serverId}`);
   };
 
   const handleSave = async () => {
-    if (saving) return; // 중복 저장 방지
+    if (saving) return;
 
-    // 제목은 비어 있으면 안 됨
     if (!title.trim()) {
       Alert.alert('입력 오류', '제목을 입력해주세요.');
       return;
     }
 
-    // 만료일 형식 간단 검증 (입력했을 경우에만)
-    if (expiryDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate.trim())) {
-      Alert.alert('입력 오류', '만료일은 YYYY-MM-DD 형식으로 입력해주세요.\n예: 2026-12-31');
-      return;
+    for (const dateVal of [
+      { val: issueDate, label: '발급일' },
+      { val: expiryDate, label: '만료일' },
+      { val: renewalDate, label: '갱신일' },
+    ]) {
+      if (dateVal.val.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(dateVal.val.trim())) {
+        Alert.alert('입력 오류', `${dateVal.label}은 YYYY-MM-DD 형식으로 입력해주세요.\n예: 2026-12-31`);
+        return;
+      }
     }
 
-    // 알림 날짜가 이미 지났는지 먼저 검사 (저장 전에)
     if (expiryDate.trim() && notiDays !== null) {
       const notiDate = subtractDays(expiryDate.trim(), notiDays);
       if (isNotiDatePast(notiDate)) {
         Alert.alert(
           '알림 날짜 확인',
-          `설정한 알림 날짜(${notiDate})가 이미 지났어요. 다시 한 번 확인하시겠습니까?`,
+          `설정한 알림 날짜(${notiDate})가 이미 지났어요. 이대로 저장할까요?`,
           [
-            { text: '수정', style: 'cancel' }, // 저장 안 하고 화면에 머무름 (입력값 유지)
+            { text: '수정', style: 'cancel' },
             {
               text: '이대로 완료',
               onPress: async () => {
                 setSaving(true);
-                try {
-                  await commitSave();
-                } finally {
-                  setSaving(false);
-                }
+                try { await commitSave(); } finally { setSaving(false); }
               },
             },
           ]
@@ -289,14 +310,15 @@ export default function DocumentEditScreen() {
       }
     }
 
-    // 날짜 문제 없으면 바로 저장
     setSaving(true);
-    try {
-      await commitSave();
-    } finally {
-      setSaving(false);
-    }
+    try { await commitSave(); } finally { setSaving(false); }
   };
+
+  const fileSizeLabel = doc.fileSizeBytes
+    ? doc.fileSizeBytes < 1024 * 1024
+      ? `${(doc.fileSizeBytes / 1024).toFixed(0)}KB`
+      : `${(doc.fileSizeBytes / (1024 * 1024)).toFixed(1)}MB`
+    : null;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -305,137 +327,202 @@ export default function DocumentEditScreen() {
           <Ionicons name="close" size={24} color={Colors.gray700} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{isManual ? '문서 등록' : '문서 수정'}</Text>
-        <TouchableOpacity onPress={handleSave} style={[styles.saveBtn, saving && styles.saveBtnDisabled]} disabled={saving}>
+        <TouchableOpacity
+          onPress={handleSave}
+          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+          disabled={saving}>
           <Text style={styles.saveBtnText}>{saving ? '저장 중...' : '저장'}</Text>
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
-          {/* 사진 첨부 (수기 등록일 때만) */}
-          {isManual && (
+
+          {/* 기본 정보 */}
+          <Text style={styles.sectionLabel}>기본 정보</Text>
+          <View style={styles.card}>
+            {/* 제목 */}
+            <View style={styles.fieldRow}>
+              <Text style={styles.fieldKey}>문서명</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="문서 제목을 입력하세요"
+                placeholderTextColor={Colors.gray400}
+              />
+            </View>
+
+            {/* 카테고리 */}
+            <View style={[styles.fieldRow, styles.fieldRowWrap]}>
+              <Text style={styles.fieldKey}>카테고리</Text>
+              <View style={styles.chipRow}>
+                {CATEGORIES.map((cat) => {
+                  const selected = category === cat;
+                  return (
+                    <TouchableOpacity
+                      key={cat}
+                      onPress={() => setCategory(cat)}
+                      style={[styles.chip, selected && styles.chipSelected]}>
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{cat}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* 파일 형식 (read-only, 서버 문서만) */}
+            {!isManual && doc.fileType && (
+              <View style={styles.fieldRow}>
+                <Text style={styles.fieldKey}>파일 형식</Text>
+                <Text style={styles.fieldReadOnly}>
+                  {FILE_TYPE_LABELS[doc.fileType] ?? doc.fileType}
+                  {fileSizeLabel ? ` · ${fileSizeLabel}` : ''}
+                </Text>
+              </View>
+            )}
+
+            {/* 발급일 */}
+            <View style={styles.fieldRow}>
+              <Text style={styles.fieldKey}>발급일</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={issueDate}
+                onChangeText={(t) => setIssueDate(formatDateInput(t))}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={Colors.gray400}
+                keyboardType="number-pad"
+                maxLength={10}
+              />
+            </View>
+
+            {/* 만료일 */}
+            <View style={styles.fieldRow}>
+              <Text style={styles.fieldKey}>만료일</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={expiryDate}
+                onChangeText={(t) => setExpiryDate(formatDateInput(t))}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={Colors.gray400}
+                keyboardType="number-pad"
+                maxLength={10}
+              />
+            </View>
+
+            {/* 갱신일 */}
+            <View style={[styles.fieldRow, styles.fieldRowLast]}>
+              <Text style={styles.fieldKey}>갱신일</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={renewalDate}
+                onChangeText={(t) => setRenewalDate(formatDateInput(t))}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={Colors.gray400}
+                keyboardType="number-pad"
+                maxLength={10}
+              />
+            </View>
+          </View>
+
+          {/* AI 추출 정보 (수기 등록이 아닐 때 항상 표시) */}
+          {!isManual && (
             <>
-              <Text style={styles.label}>사진 첨부 (선택)</Text>
-              {imageUri ? (
-                <View style={styles.imageWrap}>
-                  <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-                  <View style={styles.imageBtnRow}>
-                    <TouchableOpacity style={styles.imageBtn} onPress={handleAttachPhoto}>
-                      <Ionicons name="refresh-outline" size={16} color={Colors.primary} />
-                      <Text style={styles.imageBtnText}>변경</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.imageBtn} onPress={() => setImageUri(undefined)}>
-                      <Ionicons name="trash-outline" size={16} color={Colors.error} />
-                      <Text style={[styles.imageBtnText, { color: Colors.error }]}>삭제</Text>
-                    </TouchableOpacity>
-                  </View>
+              <Text style={styles.sectionLabel}>AI 추출 정보</Text>
+              <View style={styles.card}>
+                <View style={styles.fieldRow}>
+                  <Text style={styles.fieldKey}>날짜</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={extractedDate}
+                    onChangeText={setExtractedDate}
+                    placeholder="예: 2026-01-20"
+                    placeholderTextColor={Colors.gray400}
+                  />
                 </View>
-              ) : (
-                <TouchableOpacity style={styles.imagePlaceholder} onPress={handleAttachPhoto}>
-                  <Ionicons name="camera-outline" size={28} color={Colors.gray400} />
-                  <Text style={styles.imagePlaceholderText}>사진 추가 (카메라 / 갤러리)</Text>
-                </TouchableOpacity>
-              )}
+                <View style={styles.fieldRow}>
+                  <Text style={styles.fieldKey}>금액</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={extractedAmount}
+                    onChangeText={setExtractedAmount}
+                    placeholder="예: 50,000,000원"
+                    placeholderTextColor={Colors.gray400}
+                  />
+                </View>
+                <View style={styles.fieldRow}>
+                  <Text style={styles.fieldKey}>당사자</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={extractedParties}
+                    onChangeText={setExtractedParties}
+                    placeholder="쉼표로 구분 (예: 홍길동, 이순신)"
+                    placeholderTextColor={Colors.gray400}
+                  />
+                </View>
+                <View style={[styles.fieldRow, styles.fieldRowLast, styles.fieldRowTop]}>
+                  <Text style={styles.fieldKey}>메모</Text>
+                  <TextInput
+                    style={[styles.fieldInput, styles.fieldInputNotes, { height: Math.max(notesHeight, 64) }]}
+                    value={extractedNotes}
+                    onChangeText={setExtractedNotes}
+                    onContentSizeChange={(e) =>
+                      setNotesHeight(Math.min(e.nativeEvent.contentSize.height, 200))
+                    }
+                    placeholder="기타 메모"
+                    placeholderTextColor={Colors.gray400}
+                    multiline
+                    textAlignVertical="top"
+                  />
+                </View>
+              </View>
             </>
           )}
 
-          {/* 제목 */}
-          <Text style={styles.label}>제목</Text>
-          <TextInput
-            style={styles.input}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="문서 제목을 입력하세요"
-            placeholderTextColor={Colors.gray400}
-          />
-
-          {/* 카테고리 */}
-          <Text style={styles.label}>카테고리</Text>
-          <View style={styles.chipRow}>
-            {CATEGORIES.map((cat) => {
-              const selected = category === cat;
-              return (
-                <TouchableOpacity
-                  key={cat}
-                  onPress={() => setCategory(cat)}
-                  style={[styles.chip, selected && styles.chipSelected]}>
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                    {cat}
-                  </Text>
+          {/* 알림 설정 */}
+          <Text style={styles.sectionLabel}>알림 설정</Text>
+          <View style={styles.card}>
+            <View style={[styles.fieldRow, styles.fieldRowLast]}>
+              <Text style={styles.fieldKey}>만료 알림</Text>
+              <TouchableOpacity
+                onPress={() => setNotiMenuOpen((v) => !v)}
+                disabled={!expiryDate.trim()}>
+                <Text style={[styles.notiAddBtn, !expiryDate.trim() && styles.notiAddBtnDisabled]}>
+                  + 추가
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {!expiryDate.trim() ? (
+              <Text style={[styles.hint, { paddingHorizontal: Spacing.md, paddingBottom: Spacing.md }]}>
+                만료일을 먼저 입력해주세요.
+              </Text>
+            ) : notiDays === null ? (
+              <Text style={styles.notiEmpty}>설정된 알림이 없습니다.</Text>
+            ) : (
+              <View style={styles.notiItem}>
+                <Text style={styles.notiLabel}>
+                  {NOTI_OPTIONS.find((o) => o.days === notiDays)?.label}
+                </Text>
+                <TouchableOpacity onPress={() => setNotiDays(null)} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color={Colors.gray400} />
                 </TouchableOpacity>
-              );
-            })}
+              </View>
+            )}
           </View>
-
-          {/* 만료일 */}
-          <Text style={styles.label}>만료일 (선택)</Text>
-          <TextInput
-            style={styles.input}
-            value={expiryDate}
-            onChangeText={(text) => setExpiryDate(formatDateInput(text))}
-            placeholder="YYYY-MM-DD (예: 2026-12-31)"
-            placeholderTextColor={Colors.gray400}
-            keyboardType="number-pad"
-            maxLength={10}
-          />
-          <Text style={styles.hint}>만료일을 입력하면 만료 알림을 설정할 수 있어요.</Text>
-
-          {/* 알림 시점 */}
-          <Text style={styles.label}>만료 알림</Text>
-          <TouchableOpacity
-            style={[styles.dropdownTrigger, !expiryDate.trim() && styles.dropdownDisabled]}
-            disabled={!expiryDate.trim()}
-            onPress={() => setNotiMenuOpen((v) => !v)}>
-            <Text
-              style={[
-                styles.dropdownTriggerText,
-                !notiDays && styles.dropdownPlaceholder,
-              ]}>
-              {notiDays
-                ? NOTI_OPTIONS.find((o) => o.days === notiDays)?.label
-                : '알림 없음'}
-            </Text>
-            <Ionicons
-              name={notiMenuOpen ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={Colors.gray500}
-            />
-          </TouchableOpacity>
-          {!expiryDate.trim() && (
-            <Text style={styles.hint}>먼저 만료일을 입력해주세요.</Text>
-          )}
 
           {notiMenuOpen && (
             <View style={styles.dropdownMenu}>
-              {/* 알림 없음 */}
-              <TouchableOpacity
-                style={styles.dropdownItem}
-                onPress={() => {
-                  setNotiDays(null);
-                  setNotiMenuOpen(false);
-                }}>
-                <Text style={[styles.dropdownItemText, !notiDays && styles.dropdownItemTextActive]}>
-                  알림 없음
-                </Text>
-                {!notiDays && <Ionicons name="checkmark" size={16} color={Colors.primary} />}
-              </TouchableOpacity>
-
               {NOTI_OPTIONS.map((opt) => {
                 const active = notiDays === opt.days;
                 return (
                   <TouchableOpacity
                     key={opt.days}
                     style={styles.dropdownItem}
-                    onPress={() => {
-                      setNotiDays(opt.days);
-                      setNotiMenuOpen(false);
-                    }}>
+                    onPress={() => { setNotiDays(opt.days); setNotiMenuOpen(false); }}>
                     <Text style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}>
                       {opt.label}
                     </Text>
@@ -446,22 +533,70 @@ export default function DocumentEditScreen() {
             </View>
           )}
 
-          {/* 메모 */}
-          <Text style={styles.label}>메모 (선택)</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="문서에 대한 메모를 남겨보세요"
-            placeholderTextColor={Colors.gray400}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-          />
+          {/* 태그 */}
+          <Text style={styles.sectionLabel}>태그</Text>
+          <View style={styles.card}>
+            <View style={[styles.fieldRow, styles.tagInputRow]}>
+              <TextInput
+                style={styles.tagInput}
+                value={tagInput}
+                onChangeText={setTagInput}
+                placeholder="태그를 입력하세요"
+                placeholderTextColor={Colors.gray400}
+                onSubmitEditing={handleAddTag}
+                returnKeyType="done"
+              />
+              <TouchableOpacity style={styles.tagAddBtn} onPress={handleAddTag}>
+                <Text style={styles.tagAddBtnText}>추가</Text>
+              </TouchableOpacity>
+            </View>
+            {localTags.length === 0 ? (
+              <Text style={[styles.hint, { paddingHorizontal: Spacing.md, paddingBottom: Spacing.md }]}>
+                등록된 태그가 없습니다.
+              </Text>
+            ) : (
+              <View style={styles.tagChipRow}>
+                {localTags.map((tag, idx) => (
+                  <View key={`${tag.name}-${idx}`} style={styles.tagChip}>
+                    <Text style={styles.tagChipText}>{tag.name}</Text>
+                    <TouchableOpacity onPress={() => handleRemoveTag(idx)} hitSlop={6}>
+                      <Ionicons name="close" size={14} color={Colors.gray500} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* 사진 첨부 (수기 등록일 때만) */}
+          {isManual && (
+            <>
+              <Text style={styles.sectionLabel}>사진 첨부 (선택)</Text>
+              {imageUri ? (
+                <View style={styles.imageWrap}>
+                  <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                  <View style={styles.imageBtnRow}>
+                    <TouchableOpacity style={styles.imageBtn} onPress={() => setPhotoSheetOpen(true)}>
+                      <Ionicons name="refresh-outline" size={16} color={Colors.primary} />
+                      <Text style={styles.imageBtnText}>변경</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.imageBtn} onPress={() => setImageUri(undefined)}>
+                      <Ionicons name="trash-outline" size={16} color={Colors.error} />
+                      <Text style={[styles.imageBtnText, { color: Colors.error }]}>삭제</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.imagePlaceholder} onPress={() => setPhotoSheetOpen(true)}>
+                  <Ionicons name="camera-outline" size={28} color={Colors.gray400} />
+                  <Text style={styles.imagePlaceholderText}>사진 추가 (카메라 / 갤러리)</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* 사진 첨부 바텀시트 (Modal 대신 절대위치 View — picker 충돌 방지) */}
       {photoSheetOpen && (
         <View style={styles.sheetRoot}>
           <TouchableOpacity
@@ -482,9 +617,7 @@ export default function DocumentEditScreen() {
                 <Text style={styles.sheetItemText}>갤러리에서 선택</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              style={styles.sheetCancel}
-              onPress={() => setPhotoSheetOpen(false)}>
+            <TouchableOpacity style={styles.sheetCancel} onPress={() => setPhotoSheetOpen(false)}>
               <Text style={styles.sheetCancelText}>취소</Text>
             </TouchableOpacity>
           </View>
@@ -508,6 +641,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: Colors.gray200,
+    backgroundColor: Colors.white,
   },
   backBtn: { padding: 4 },
   headerTitle: { fontSize: 17, fontWeight: '700', color: Colors.gray900 },
@@ -521,57 +655,93 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg, paddingBottom: Spacing.xl * 2 },
+  scrollContent: { padding: Spacing.lg, paddingBottom: Spacing.xl * 3, gap: 0 },
 
-  label: {
-    fontSize: 14,
+  sectionLabel: {
+    fontSize: 13,
     fontWeight: '600',
-    color: Colors.gray700,
-    marginBottom: Spacing.sm,
+    color: Colors.gray500,
     marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: Colors.gray300,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    fontSize: 15,
-    color: Colors.gray900,
-    backgroundColor: Colors.white,
-  },
-  textArea: { height: 100 },
-  hint: { fontSize: 12, color: Colors.gray400, marginTop: 6 },
 
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  chip: {
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    overflow: 'hidden',
+  },
+
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray100,
+    gap: Spacing.sm,
+  },
+  fieldRowLast: { borderBottomWidth: 0 },
+  fieldRowWrap: { alignItems: 'flex-start', flexWrap: 'wrap' },
+
+  fieldKey: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.gray600,
+    width: 72,
+    flexShrink: 0,
+  },
+  fieldInput: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.gray900,
+    padding: 0,
+  },
+  fieldRowTop: { alignItems: 'flex-start', paddingVertical: 10 },
+  fieldInputNotes: { paddingTop: 2 },
+  fieldReadOnly: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.gray500,
+  },
+
+  hint: { fontSize: 12, color: Colors.gray400, paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm },
+
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, flex: 1 },
+  chip: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: Colors.gray300,
     backgroundColor: Colors.white,
   },
   chipSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  chipText: { fontSize: 14, color: Colors.gray700 },
+  chipText: { fontSize: 13, color: Colors.gray700 },
   chipTextSelected: { color: '#fff', fontWeight: '600' },
 
-  dropdownTrigger: {
+  notiAddBtn: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+  notiAddBtnDisabled: { color: Colors.gray300 },
+  notiEmpty: {
+    fontSize: 13,
+    color: Colors.gray400,
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+  notiItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: Colors.gray300,
-    borderRadius: Radius.md,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.white,
+    paddingBottom: Spacing.md,
   },
-  dropdownDisabled: { backgroundColor: Colors.gray100, borderColor: Colors.gray200 },
-  dropdownTriggerText: { fontSize: 15, color: Colors.gray900 },
-  dropdownPlaceholder: { color: Colors.gray400 },
+  notiLabel: { fontSize: 14, color: Colors.gray800, fontWeight: '500' },
+
   dropdownMenu: {
-    marginTop: Spacing.sm,
+    marginTop: 2,
     borderWidth: 1,
     borderColor: Colors.gray200,
     borderRadius: Radius.md,
@@ -591,6 +761,29 @@ const styles = StyleSheet.create({
   },
   dropdownItemText: { fontSize: 14, color: Colors.gray700 },
   dropdownItemTextActive: { color: Colors.primary, fontWeight: '600' },
+
+  tagInputRow: { borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
+  tagInput: { flex: 1, fontSize: 14, color: Colors.gray900, padding: 0 },
+  tagAddBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 5,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primary,
+  },
+  tagAddBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  tagChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, padding: Spacing.md },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.gray100,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+  },
+  tagChipText: { fontSize: 13, color: Colors.gray700 },
 
   imagePlaceholder: {
     height: 140,

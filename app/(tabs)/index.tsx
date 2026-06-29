@@ -5,7 +5,7 @@ import { useDocStore } from '@/stores/doc-store';
 import { useReceiptStore } from '@/stores/receipt-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Platform,
   ScrollView,
@@ -22,8 +22,13 @@ export default function HomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const documents = useDocStore((s) => s.documents);
+  const fetchDocuments = useDocStore((s) => s.fetchDocuments);
   const getTotalForMonth = useReceiptStore((s) => s.getTotalForMonth);
   const [activeTab, setActiveTab] = useState<HomeTab>('recent');
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
 
   const today = new Date().toISOString().split('T')[0];
   const currentMonth = today.slice(0, 7);

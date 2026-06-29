@@ -313,7 +313,7 @@ export default function ReceiptScreen() {
             </View>
           ) : (
             <View style={styles.receiptList}>
-              {displayedReceipts.map((receipt) => {
+              {displayedReceipts.map((receipt, index) => {
                 const category = getCategoryLabel(receipt.category);
                 const categoryColor =
                   categoryBreakdown.find((item) => item.category === category)
@@ -321,7 +321,7 @@ export default function ReceiptScreen() {
 
                 return (
                   <TouchableOpacity
-                    key={receipt.id}
+                    key={receipt.id || String(index)}
                     style={styles.receiptItem}
                     onPress={() =>
                       router.push(`/receipt-detail/${receipt.id}` as any)
