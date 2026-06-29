@@ -1,3 +1,4 @@
+import { CATEGORY_FIELDS } from '@/constants/document-fields';
 import { DocumentCategory } from '@/constants/mock-data';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
@@ -6,6 +7,7 @@ import {
   updateDocument as apiUpdateDocument,
 } from '@/services/document';
 import { cancelNotification, createDocumentAlert, scheduleExpiryNotification } from '@/services/notifications';
+import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { showToast } from '@/stores/toast-store';
 import { getErrorMessage } from '@/utils/error';
@@ -17,9 +19,11 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -69,7 +73,8 @@ const FILE_TYPE_LABELS: Record<string, string> = {
 export default function DocumentEditScreen() {
   const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
   const router = useRouter();
-  const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId } = useDocStore();
+  const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId, toggleSecured } = useDocStore();
+  const { pin: storedPin } = useAuthStore();
   const doc = documents.find((d) => d.id === id);
 
   const isManual = manual === '1';
@@ -81,13 +86,10 @@ export default function DocumentEditScreen() {
   const [renewalDate, setRenewalDate] = useState(doc?.renewalDate ?? '');
   const [imageUri, setImageUri] = useState<string | undefined>(doc?.imageUri);
 
-  // AI 추출 정보 (편집 가능)
-  const [extractedDate, setExtractedDate] = useState(doc?.extractedData?.date ?? '');
-  const [extractedAmount, setExtractedAmount] = useState(doc?.extractedData?.amount ?? '');
-  const [extractedParties, setExtractedParties] = useState(
-    (doc?.extractedData?.parties ?? []).join(', ')
+  // AI 추출 정보 (카테고리별 동적 필드)
+  const [extractedFields, setExtractedFields] = useState<Record<string, string>>(
+    () => ({ ...(doc?.extractedData ?? {}) })
   );
-  const [extractedNotes, setExtractedNotes] = useState(doc?.extractedData?.notes ?? '');
   const [notesHeight, setNotesHeight] = useState(64);
 
   // 태그: 기존 서버 태그 (tagId 포함) + 새로 추가한 것 (tagId 없음)
@@ -109,6 +111,10 @@ export default function DocumentEditScreen() {
   const [notiMenuOpen, setNotiMenuOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinModalInput, setPinModalInput] = useState('');
+  const [pinModalError, setPinModalError] = useState(false);
+  const [pinModalPurpose, setPinModalPurpose] = useState<'enable' | 'disable'>('enable');
 
   if (!doc) {
     return (
@@ -184,13 +190,10 @@ export default function DocumentEditScreen() {
 
     const matchedCat = categories.find((c) => c.name === category);
 
-    const newExtractedData = {
-      ...doc.extractedData,
-      date: extractedDate.trim() || undefined,
-      amount: extractedAmount.trim() || undefined,
-      parties: extractedParties.trim() ? extractedParties.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
-      notes: extractedNotes.trim() || undefined,
-    };
+    const newExtractedData: Record<string, string> = {};
+    for (const [k, v] of Object.entries(extractedFields)) {
+      if (v.trim()) newExtractedData[k] = v.trim();
+    }
 
     updateDocument(doc.id, {
       title: title.trim(),
@@ -228,7 +231,7 @@ export default function DocumentEditScreen() {
           issueDate: issueDate.trim() || undefined,
           expiryDate: expiryDate.trim() || undefined,
           renewalDate: renewalDate.trim() || undefined,
-          extractedData: newExtractedData,
+          extractedData: newExtractedData as any,
           ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
         });
       }
@@ -312,6 +315,36 @@ export default function DocumentEditScreen() {
 
     setSaving(true);
     try { await commitSave(); } finally { setSaving(false); }
+  };
+
+  const PIN_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','del']];
+
+  const handleToggleSecured = () => {
+    if (!storedPin) {
+      showToast('먼저 PIN을 설정해주세요.', 'error');
+      return;
+    }
+    setPinModalPurpose(doc.isSecured ? 'disable' : 'enable');
+    setPinModalInput('');
+    setPinModalError(false);
+    setPinModalVisible(true);
+  };
+
+  const handlePinModalDigit = (digit: string) => {
+    if (pinModalInput.length >= 4) return;
+    const next = pinModalInput + digit;
+    setPinModalInput(next);
+    setPinModalError(false);
+    if (next.length === 4) {
+      if (next === storedPin) {
+        toggleSecured(doc.id);
+        setPinModalVisible(false);
+        setPinModalInput('');
+      } else {
+        setPinModalError(true);
+        setTimeout(() => { setPinModalInput(''); setPinModalError(false); }, 600);
+      }
+    }
   };
 
   const fileSizeLabel = doc.fileSizeBytes
@@ -429,59 +462,45 @@ export default function DocumentEditScreen() {
             </View>
           </View>
 
-          {/* AI 추출 정보 (수기 등록이 아닐 때 항상 표시) */}
-          {!isManual && (
-            <>
-              <Text style={styles.sectionLabel}>AI 추출 정보</Text>
-              <View style={styles.card}>
-                <View style={styles.fieldRow}>
-                  <Text style={styles.fieldKey}>날짜</Text>
+          {/* AI 추출 정보 (카테고리별 동적 필드) */}
+          <Text style={styles.sectionLabel}>AI 추출 정보</Text>
+          <View style={styles.card}>
+            {CATEGORY_FIELDS[category].map((field, idx) => {
+              const isLast = idx === CATEGORY_FIELDS[category].length - 1;
+              return (
+                <View
+                  key={field.key}
+                  style={[
+                    styles.fieldRow,
+                    isLast && styles.fieldRowLast,
+                    field.multiline && styles.fieldRowTop,
+                  ]}
+                >
+                  <Text style={styles.fieldKey}>{field.label}</Text>
                   <TextInput
-                    style={styles.fieldInput}
-                    value={extractedDate}
-                    onChangeText={setExtractedDate}
-                    placeholder="예: 2026-01-20"
-                    placeholderTextColor={Colors.gray400}
-                  />
-                </View>
-                <View style={styles.fieldRow}>
-                  <Text style={styles.fieldKey}>금액</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={extractedAmount}
-                    onChangeText={setExtractedAmount}
-                    placeholder="예: 50,000,000원"
-                    placeholderTextColor={Colors.gray400}
-                  />
-                </View>
-                <View style={styles.fieldRow}>
-                  <Text style={styles.fieldKey}>당사자</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={extractedParties}
-                    onChangeText={setExtractedParties}
-                    placeholder="쉼표로 구분 (예: 홍길동, 이순신)"
-                    placeholderTextColor={Colors.gray400}
-                  />
-                </View>
-                <View style={[styles.fieldRow, styles.fieldRowLast, styles.fieldRowTop]}>
-                  <Text style={styles.fieldKey}>메모</Text>
-                  <TextInput
-                    style={[styles.fieldInput, styles.fieldInputNotes, { height: Math.max(notesHeight, 64) }]}
-                    value={extractedNotes}
-                    onChangeText={setExtractedNotes}
-                    onContentSizeChange={(e) =>
-                      setNotesHeight(Math.min(e.nativeEvent.contentSize.height, 200))
+                    style={[
+                      styles.fieldInput,
+                      field.multiline && styles.fieldInputNotes,
+                      field.multiline && { height: Math.max(notesHeight, 64) },
+                    ]}
+                    value={extractedFields[field.key] ?? ''}
+                    onChangeText={(val) =>
+                      setExtractedFields((prev) => ({ ...prev, [field.key]: val }))
                     }
-                    placeholder="기타 메모"
+                    onContentSizeChange={
+                      field.multiline
+                        ? (e) => setNotesHeight(Math.min(e.nativeEvent.contentSize.height, 200))
+                        : undefined
+                    }
+                    placeholder={field.placeholder}
                     placeholderTextColor={Colors.gray400}
-                    multiline
-                    textAlignVertical="top"
+                    multiline={field.multiline}
+                    textAlignVertical={field.multiline ? 'top' : 'center'}
                   />
                 </View>
-              </View>
-            </>
-          )}
+              );
+            })}
+          </View>
 
           {/* 알림 설정 */}
           <Text style={styles.sectionLabel}>알림 설정</Text>
@@ -536,7 +555,8 @@ export default function DocumentEditScreen() {
           {/* 태그 */}
           <Text style={styles.sectionLabel}>태그</Text>
           <View style={styles.card}>
-            <View style={[styles.fieldRow, styles.tagInputRow]}>
+            <View style={styles.tagInputRow}>
+              <Ionicons name="pricetag-outline" size={15} color={Colors.gray400} style={{ marginLeft: Spacing.md }} />
               <TextInput
                 style={styles.tagInput}
                 value={tagInput}
@@ -546,26 +566,50 @@ export default function DocumentEditScreen() {
                 onSubmitEditing={handleAddTag}
                 returnKeyType="done"
               />
-              <TouchableOpacity style={styles.tagAddBtn} onPress={handleAddTag}>
-                <Text style={styles.tagAddBtnText}>추가</Text>
+              <TouchableOpacity
+                style={[styles.tagAddBtn, !tagInput.trim() && styles.tagAddBtnDisabled]}
+                onPress={handleAddTag}
+                disabled={!tagInput.trim()}
+              >
+                <Text style={[styles.tagAddBtnText, !tagInput.trim() && styles.tagAddBtnTextDisabled]}>추가</Text>
               </TouchableOpacity>
             </View>
-            {localTags.length === 0 ? (
-              <Text style={[styles.hint, { paddingHorizontal: Spacing.md, paddingBottom: Spacing.md }]}>
-                등록된 태그가 없습니다.
-              </Text>
-            ) : (
-              <View style={styles.tagChipRow}>
-                {localTags.map((tag, idx) => (
-                  <View key={`${tag.name}-${idx}`} style={styles.tagChip}>
-                    <Text style={styles.tagChipText}>{tag.name}</Text>
-                    <TouchableOpacity onPress={() => handleRemoveTag(idx)} hitSlop={6}>
-                      <Ionicons name="close" size={14} color={Colors.gray500} />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
+            {localTags.length > 0 && (
+              <>
+                <View style={styles.tagDivider} />
+                <View style={styles.tagChipRow}>
+                  {localTags.map((tag, idx) => (
+                    <View key={`${tag.name}-${idx}`} style={styles.tagChip}>
+                      <Text style={styles.tagChipHash}>#</Text>
+                      <Text style={styles.tagChipText}>{tag.name}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveTag(idx)} hitSlop={6}>
+                        <Ionicons name="close" size={13} color={Colors.primary} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </>
             )}
+            {localTags.length === 0 && (
+              <Text style={styles.tagEmpty}>추가된 태그가 없습니다.</Text>
+            )}
+          </View>
+
+          {/* 문서 보호 */}
+          <Text style={styles.sectionLabel}>문서 보호</Text>
+          <View style={styles.card}>
+            <View style={[styles.fieldRow, styles.fieldRowLast]}>
+              <View style={styles.secureRowInfo}>
+                <Text style={styles.fieldKey}>PIN 보호</Text>
+                <Text style={styles.secureRowSub}>{doc.isSecured ? '보안 문서로 설정됨' : '설정 안 됨'}</Text>
+              </View>
+              <Switch
+                value={!!doc.isSecured}
+                onValueChange={handleToggleSecured}
+                trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
+                thumbColor={doc.isSecured ? Colors.primary : Colors.gray400}
+              />
+            </View>
           </View>
 
           {/* 사진 첨부 (수기 등록일 때만) */}
@@ -596,6 +640,69 @@ export default function DocumentEditScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* PIN 인증 모달 */}
+      <Modal
+        visible={pinModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPinModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {pinModalPurpose === 'enable' ? '보안 문서로 설정' : '보안 해제'}
+            </Text>
+            <Text style={styles.modalSubtitle}>PIN 번호를 입력해주세요</Text>
+            <View style={styles.pinDots}>
+              {[0, 1, 2, 3].map((i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.pinDot,
+                    pinModalInput.length > i && styles.pinDotFilled,
+                    pinModalError && styles.pinDotError,
+                  ]}
+                />
+              ))}
+            </View>
+            {pinModalError && <Text style={styles.pinErrorText}>PIN이 올바르지 않습니다</Text>}
+            <View style={styles.pinPad}>
+              {PIN_ROWS.map((row, ri) => (
+                <View key={ri} style={styles.pinRow}>
+                  {row.map((key) =>
+                    key === '' ? (
+                      <View key="empty" style={styles.pinKey} />
+                    ) : key === 'del' ? (
+                      <TouchableOpacity
+                        key="del"
+                        style={styles.pinKey}
+                        onPress={() => setPinModalInput((p) => p.slice(0, -1))}
+                      >
+                        <Ionicons name="backspace-outline" size={22} color={Colors.gray700} />
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        key={key}
+                        style={styles.pinKey}
+                        onPress={() => handlePinModalDigit(key)}
+                      >
+                        <Text style={styles.pinKeyText}>{key}</Text>
+                      </TouchableOpacity>
+                    )
+                  )}
+                </View>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={styles.modalCancel}
+              onPress={() => setPinModalVisible(false)}
+            >
+              <Text style={styles.modalCancelText}>취소</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {photoSheetOpen && (
         <View style={styles.sheetRoot}>
@@ -762,28 +869,41 @@ const styles = StyleSheet.create({
   dropdownItemText: { fontSize: 14, color: Colors.gray700 },
   dropdownItemTextActive: { color: Colors.primary, fontWeight: '600' },
 
-  tagInputRow: { borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
-  tagInput: { flex: 1, fontSize: 14, color: Colors.gray900, padding: 0 },
-  tagAddBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 5,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.primary,
+  tagInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingRight: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray100,
   },
-  tagAddBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  tagInput: { flex: 1, fontSize: 14, color: Colors.gray900, paddingVertical: 13, padding: 0 },
+  tagAddBtn: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  tagAddBtnDisabled: { borderColor: Colors.gray200 },
+  tagAddBtnText: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+  tagAddBtnTextDisabled: { color: Colors.gray300 },
+  tagDivider: { height: 1, backgroundColor: Colors.gray100, marginHorizontal: Spacing.md },
   tagChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, padding: Spacing.md },
   tagChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: Radius.full,
-    backgroundColor: Colors.gray100,
+    backgroundColor: Colors.primaryLight,
     borderWidth: 1,
-    borderColor: Colors.gray200,
+    borderColor: Colors.primary + '33',
   },
-  tagChipText: { fontSize: 13, color: Colors.gray700 },
+  tagChipHash: { fontSize: 12, color: Colors.primary, fontWeight: '700' },
+  tagChipText: { fontSize: 13, color: Colors.primary, fontWeight: '500' },
+  tagEmpty: { fontSize: 13, color: Colors.gray400, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md },
 
   imagePlaceholder: {
     height: 140,
@@ -854,4 +974,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sheetCancelText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
+
+  // 문서 보호
+  secureRowInfo: { flex: 1, marginRight: Spacing.md },
+  secureRowSub: { fontSize: 12, color: Colors.gray400, marginTop: 2 },
+
+  // PIN 인증 모달
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  modalCard: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
+    paddingBottom: 40,
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.gray900 },
+  modalSubtitle: { fontSize: 14, color: Colors.gray500 },
+  modalCancel: { marginTop: Spacing.sm, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.xl },
+  modalCancelText: { fontSize: 15, color: Colors.gray500, fontWeight: '500' },
+  pinDots: { flexDirection: 'row', gap: 16, marginVertical: Spacing.md },
+  pinDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: Colors.gray300, backgroundColor: 'transparent' },
+  pinDotFilled: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  pinDotError: { borderColor: Colors.error, backgroundColor: Colors.error },
+  pinErrorText: { fontSize: 13, color: Colors.error, marginTop: -Spacing.xs },
+  pinPad: { width: '100%', maxWidth: 280, gap: 8, marginTop: Spacing.sm },
+  pinRow: { flexDirection: 'row', gap: 8 },
+  pinKey: {
+    flex: 1, height: 64, borderRadius: Radius.lg,
+    backgroundColor: Colors.white, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.gray100,
+  },
+  pinKeyText: { fontSize: 22, fontWeight: '600', color: Colors.gray900 },
 });

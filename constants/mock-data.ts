@@ -20,12 +20,7 @@ export interface Document {
   aiConfidence?: number;
   fileSizeBytes?: number;
   status: DocumentStatus;
-  extractedData: {
-    date?: string;
-    amount?: string;
-    parties?: string[];
-    notes?: string;
-  };
+  extractedData: Record<string, string>;
   notifications: {
     id: string;
     date: string;
