@@ -53,7 +53,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
           style={styles.cameraBtn}
           onPress={() => router.push('/camera' as any)}
           activeOpacity={0.85}>
-          <Ionicons name="camera" size={28} color={Colors.white} />
+          <Ionicons name="share-outline" size={34} color={Colors.white} />
         </TouchableOpacity>
 
         <View style={styles.side}>{rightTabs.map(renderTab)}</View>
