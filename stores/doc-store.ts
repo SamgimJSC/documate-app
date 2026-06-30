@@ -7,6 +7,7 @@ import {
   getDocumentCategories,
   getDocuments,
   updateDocumentFavorite,
+  updateDocumentSecured,
 } from '@/services/document';
 import { create } from 'zustand';
 
@@ -23,22 +24,19 @@ function toDocument(item: DocumentItem): Document {
     else if (daysLeft <= 30) status = "expiring_soon";
   }
 
-  // 서버 extractedData(자유 형식)에서 화면이 쓰는 필드만 안전하게 꺼냄
-  // TODO [서버 연동 시 확인]: 실제 CLOVA OCR 응답의 키 이름을 보고 매핑 조정 필요.
-  //   서버가 date/amount/parties 외 다른 키(예: issue_date, total_amount)로 줄 수 있음.
   const raw = (item.extractedData ?? {}) as Record<string, unknown>;
-  const asString = (v: unknown): string | undefined =>
-    typeof v === 'string' ? v : typeof v === 'number' ? String(v) : undefined;
-  const asStringArray = (v: unknown): string[] | undefined =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
-
-  const extractedData = {
-    date: asString(raw.date),
-    amount: asString(raw.amount),
-    parties: asStringArray(raw.parties),
-    // notes는 추출데이터에 있으면 그걸, 없으면 OCR 원문(ocrText)을 폴백으로
-    notes: asString(raw.notes) ?? (typeof item.ocrText === 'string' ? item.ocrText : undefined),
-  };
+  const extractedData: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === 'string' && v) extractedData[k] = v;
+    else if (typeof v === 'number') extractedData[k] = String(v);
+    else if (Array.isArray(v)) {
+      const strs = v.filter((x): x is string => typeof x === 'string');
+      if (strs.length) extractedData[k] = strs.join(', ');
+    }
+  }
+  if (!extractedData.notes && typeof item.ocrText === 'string' && item.ocrText) {
+    extractedData.notes = item.ocrText;
+  }
 
   return {
     id: item.documentId,
@@ -106,7 +104,13 @@ export const useDocStore = create<DocState>()((set, get) => ({
         sort: "createdAt",
         order: "DESC",
       });
-      set({ documents: result.items.map(toDocument) });
+      const existing = get().documents;
+      set({
+        documents: result.items.map((item) => {
+          const local = existing.find((d) => d.id === item.documentId);
+          return { ...toDocument(item), isSecured: local?.isSecured ?? false };
+        }),
+      });
     } catch (error) {
       console.error("문서 목록 조회 실패:", error);
     } finally {
@@ -174,13 +178,17 @@ export const useDocStore = create<DocState>()((set, get) => ({
   },
 
   toggleSecured: (id) => {
+    const doc = get().documents.find((d) => d.id === id);
+    if (!doc) return;
+    const next = !doc.isSecured;
     set((state) => ({
       documents: state.documents.map((document) =>
-        document.id === id
-          ? { ...document, isSecured: !document.isSecured }
-          : document,
+        document.id === id ? { ...document, isSecured: next } : document,
       ),
     }));
+    if (!isLocalDraft(id)) {
+      updateDocumentSecured(id, next).catch(() => {});
+    }
   },
 
   setSearchQuery: (q) => set({ searchQuery: q }),

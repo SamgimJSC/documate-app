@@ -16,13 +16,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
+function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>, pin: string) {
   useAuthStore.setState({
     user,
     token: "session",
     isAuthenticated: true,
     isPinSet: true,
     isPinVerified: true,
+    pin,
   });
 }
 
@@ -46,7 +47,7 @@ export default function PinVerifyScreen() {
       await loginWithPin(value);
 
       const user = await getCurrentUser();
-      completeLogin(user);
+      completeLogin(user, value);
       router.replace("/(tabs)");
     } catch (err: unknown) {
       const nextAttempts = attempts + 1;
@@ -92,7 +93,7 @@ export default function PinVerifyScreen() {
       if (!result.success) return;
 
       const user = await getCurrentUser();
-      completeLogin(user);
+      completeLogin(user, "");
       router.replace("/(tabs)");
     } catch {
       setError("생체인식 로그인에 실패했습니다. PIN 또는 이메일로 로그인해주세요.");

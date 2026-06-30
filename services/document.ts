@@ -244,6 +244,21 @@ export async function updateDocument(
   return response.data;
 }
 
+// PATCH /documents/:documentId/secure
+export async function updateDocumentSecured(
+  documentId: string,
+  isSecured: boolean
+) {
+  const response = await documentRequest<ApiResponse<DocumentItem>>(
+    `/documents/${documentId}/secure`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ isSecured }),
+    }
+  );
+  return response.data;
+}
+
 // PATCH /documents/:documentId/favorite
 export async function updateDocumentFavorite(
   documentId: string,

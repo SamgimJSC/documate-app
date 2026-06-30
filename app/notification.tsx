@@ -62,9 +62,9 @@ export default function NotificationScreen() {
   const handlePress = async (item: ServerNotification) => {
     try {
       if (!item.is_read) {
-        await markServerNotificationRead(item.alert_id);
+        await markServerNotificationRead(item.notificationId);
         setNotifications((prev) =>
-          prev.map((n) => (n.alert_id === item.alert_id ? { ...n, is_read: true } : n))
+          prev.map((n) => (n.notificationId === item.notificationId ? { ...n, is_read: true } : n))
         );
       }
     } catch (e) {
@@ -150,7 +150,7 @@ export default function NotificationScreen() {
       ) : (
         <FlatList
           data={notifications}
-          keyExtractor={(item) => item.alert_id}
+          keyExtractor={(item) => item.notificationId}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <Pressable

@@ -185,7 +185,7 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 export type NotificationStatus = "all" | "unread" | "read";
 
 export type ServerNotification = {
-  alert_id: string;
+  notificationId: string;
   document_id: string;
   title: string;
   body: string;
@@ -221,7 +221,9 @@ async function request<T>(
     throw new Error(`API 요청 실패: ${response.status} ${errorText}`);
   }
 
-  const json = await response.json();
+  const text = await response.text();
+  if (!text) return undefined as T;
+  const json = JSON.parse(text);
   return (json?.data ?? json) as T;
 }
 
