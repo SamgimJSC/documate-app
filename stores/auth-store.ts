@@ -1,3 +1,4 @@
+import { unregisterDeviceToken } from "@/services/firebaseMessaging";
 import axiosInstance from "@/utils/axios.util";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
@@ -21,6 +22,7 @@ interface AuthState {
   isBiometricEnabled: boolean;
 
   login: (email: string, password: string) => Promise<void>;
+  loginWithPin: (pinNumber: string) => Promise<boolean>;
   logout: () => void;
   register: (email: string, password: string, nickname: string) => Promise<void>;
   checkEmailExists: (email: string) => Promise<boolean>;
@@ -28,6 +30,8 @@ interface AuthState {
   updatePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
+  verifyPinWithServer: (pinNumber: string) => Promise<boolean>;
+  changePinWithServer: (currentPin: string, newPin: string) => Promise<void>;
   setPinVerified: (verified: boolean) => void;
   enableBiometric: () => void;
   disableBiometric: () => void;
@@ -62,10 +66,24 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       token: "logged-in",
       isAuthenticated: true,
       isPinVerified: true,
+      isPinSet: userData.hasPinNumber ?? userData.isPinSet ?? false,
     });
   },
 
+  loginWithPin: async (pinNumber) => {
+    const email = get().user?.email;
+    if (!email) return false;
+    try {
+      await axiosInstance.post("/auth/login/pin", { email, pinNumber });
+      set({ isAuthenticated: true, isPinVerified: true, pin: pinNumber, isPinSet: true });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   logout: () => {
+    unregisterDeviceToken();
     axiosInstance.post("/auth/logout").catch(() => {});
     SecureStore.deleteItemAsync("accessToken").catch(() => {});
     set({
@@ -104,11 +122,21 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   setPin: (pin) => set({ pin, isPinSet: true }),
 
   verifyPin: (pin) => {
-    const isCorrect = get().pin === pin;
-    if (isCorrect) {
-      set({ isPinVerified: true, isAuthenticated: true });
+    return get().pin === pin;
+  },
+
+  verifyPinWithServer: async (pinNumber) => {
+    try {
+      await axiosInstance.post("/users/me/pin/verify", { pinNumber });
+      return true;
+    } catch {
+      return false;
     }
-    return isCorrect;
+  },
+
+  changePinWithServer: async (currentPin, newPin) => {
+    await axiosInstance.patch("/users/me/pin", { currentPin, newPin });
+    set({ pin: newPin });
   },
 
   setPinVerified: (verified) => set({ isPinVerified: verified }),

@@ -1,4 +1,3 @@
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { CATEGORY_FIELDS } from '@/constants/document-fields';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { downloadAsPdf } from '@/services/download';
@@ -42,12 +41,9 @@ export default function DocumentDetailScreen() {
   const router = useRouter();
   const [downloading, setDownloading] = useState(false);
   const [fetching, setFetching] = useState(false);
-  const [isPinUnlocked, setIsPinUnlocked] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState(false);
+  const { pin: storedPin, verifyPinWithServer } = useAuthStore();
   const hasFetchedRef = useRef(false);
   const { documents, toggleFavorite, removeDocument, fetchDocuments, toggleSecured } = useDocStore();
-  const { pin: storedPin } = useAuthStore();
   const doc = documents.find((d) => d.id === id);
 
   const [serverAlerts, setServerAlerts] = useState<DocumentAlert[]>([]);
@@ -55,21 +51,6 @@ export default function DocumentDetailScreen() {
   const [pinModalInput, setPinModalInput] = useState('');
   const [pinModalError, setPinModalError] = useState(false);
   const [pinModalPurpose, setPinModalPurpose] = useState<'enable' | 'disable'>('enable');
-
-  const handlePinDigit = (digit: string) => {
-    if (pinInput.length >= 4) return;
-    const next = pinInput + digit;
-    setPinInput(next);
-    setPinError(false);
-    if (next.length === 4) {
-      if (next === storedPin) {
-        setIsPinUnlocked(true);
-      } else {
-        setPinError(true);
-        setTimeout(() => { setPinInput(''); setPinError(false); }, 600);
-      }
-    }
-  };
 
   // 알림 탭 등으로 스토어가 비어있는 채 진입할 경우 문서 목록을 새로 가져옴
   useEffect(() => {
@@ -110,65 +91,6 @@ export default function DocumentDetailScreen() {
   }
 
   const PIN_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','del']];
-
-  if (doc.isSecured && !isPinUnlocked) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.pinHeader}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={Colors.gray700} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.pinBody}>
-          <View style={styles.pinIconWrap}>
-            <IconSymbol name="lock.fill" size={32} color={Colors.primary} />
-          </View>
-          <Text style={styles.pinTitle}>잠긴 문서입니다</Text>
-          <Text style={styles.pinDocName} numberOfLines={1}>{doc.title}</Text>
-          <View style={styles.pinDots}>
-            {[0, 1, 2, 3].map((i) => (
-              <View
-                key={i}
-                style={[
-                  styles.pinDot,
-                  pinInput.length > i && styles.pinDotFilled,
-                  pinError && styles.pinDotError,
-                ]}
-              />
-            ))}
-          </View>
-          {pinError && <Text style={styles.pinErrorText}>PIN이 올바르지 않습니다</Text>}
-          <View style={styles.pinPad}>
-            {PIN_ROWS.map((row, ri) => (
-              <View key={ri} style={styles.pinRow}>
-                {row.map((key) =>
-                  key === '' ? (
-                    <View key="empty" style={styles.pinKey} />
-                  ) : key === 'del' ? (
-                    <TouchableOpacity
-                      key="del"
-                      style={styles.pinKey}
-                      onPress={() => setPinInput((p) => p.slice(0, -1))}
-                    >
-                      <Ionicons name="backspace-outline" size={22} color={Colors.gray700} />
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      key={key}
-                      style={styles.pinKey}
-                      onPress={() => handlePinDigit(key)}
-                    >
-                      <Text style={styles.pinKeyText}>{key}</Text>
-                    </TouchableOpacity>
-                  )
-                )}
-              </View>
-            ))}
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   const handleDelete = () => {
     Alert.alert('문서 삭제', '이 문서를 삭제하시겠습니까?', [
@@ -213,26 +135,26 @@ export default function DocumentDetailScreen() {
   };
 
   const handleToggleSecured = () => {
-    if (!storedPin) {
-      showToast('먼저 PIN을 설정해주세요.', 'error');
-      return;
-    }
     setPinModalPurpose(doc.isSecured ? 'disable' : 'enable');
     setPinModalInput('');
     setPinModalError(false);
     setPinModalVisible(true);
   };
 
-  const handlePinModalDigit = (digit: string) => {
-    if (pinModalInput.length >= 4) return;
+  const handlePinModalDigit = async (digit: string) => {
+    if (pinModalInput.length >= 6) return;
     const next = pinModalInput + digit;
     setPinModalInput(next);
     setPinModalError(false);
-    if (next.length === 4) {
-      if (next === storedPin) {
+    if (next.length === 6) {
+      const ok = storedPin ? next === storedPin : await verifyPinWithServer(next);
+      if (ok) {
         toggleSecured(doc.id);
         setPinModalVisible(false);
         setPinModalInput('');
+        if (pinModalPurpose === 'enable') {
+          router.replace('/(tabs)/cabinet' as any);
+        }
       } else {
         setPinModalError(true);
         setTimeout(() => { setPinModalInput(''); setPinModalError(false); }, 600);
@@ -371,11 +293,11 @@ export default function DocumentDetailScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.infoGrid}>
-            {CATEGORY_FIELDS[doc.category].map((field) => (
+            {(CATEGORY_FIELDS[doc.category] ?? []).map((field) => (
               <View key={field.key} style={styles.infoRow}>
                 <Text style={styles.infoLabel}>{field.label}</Text>
-                <Text style={[styles.infoValue, !doc.extractedData[field.key] && styles.infoValueEmpty]}>
-                  {doc.extractedData[field.key] || '-'}
+                <Text style={[styles.infoValue, !doc.extractedData?.[field.key] && styles.infoValueEmpty]}>
+                  {doc.extractedData?.[field.key] || '-'}
                 </Text>
               </View>
             ))}
@@ -453,13 +375,6 @@ export default function DocumentDetailScreen() {
               thumbColor={doc.isSecured ? Colors.primary : Colors.gray400}
             />
           </View>
-          {doc.isSecured && isPinUnlocked && (
-            <View style={styles.secureNote}>
-              <Text style={styles.secureNoteText}>
-                이번 열람 세션에서만 문서 내용을 표시하고 있어요.
-              </Text>
-            </View>
-          )}
         </View>
 
         <View style={{ height: Spacing.xl }} />
@@ -479,7 +394,7 @@ export default function DocumentDetailScreen() {
             </Text>
             <Text style={styles.modalSubtitle}>PIN 번호를 입력해주세요</Text>
             <View style={styles.pinDots}>
-              {[0, 1, 2, 3].map((i) => (
+              {[0, 1, 2, 3, 4, 5].map((i) => (
                 <View
                   key={i}
                   style={[

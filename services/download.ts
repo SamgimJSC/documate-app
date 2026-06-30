@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 
@@ -44,6 +43,7 @@ export async function downloadAsPdf(
 </body>
 </html>`;
 
+    const Print = await import('expo-print');
     const { uri } = await Print.printToFileAsync({ html, base64: false });
     pdfUri = uri;
   }

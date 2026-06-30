@@ -10,17 +10,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function PinVerifyScreen() {
   const router = useRouter();
-  const { verifyPin, isBiometricEnabled, logout, user } = useAuthStore();
+  const { loginWithPin, isBiometricEnabled, logout, user } = useAuthStore();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [attempts, setAttempts] = useState(0);
 
-  const handlePin = (val: string) => {
+  const handlePin = async (val: string) => {
     setPin(val);
     if (val.length === 6) {
-      if (verifyPin(val)) {
-        // Ensure auth flags are set on the store (avoid race with guard)
-        useAuthStore.setState({ isAuthenticated: true, isPinVerified: true });
+      const ok = await loginWithPin(val);
+      if (ok) {
         router.replace("/(tabs)");
       } else {
         setAttempts((a) => a + 1);

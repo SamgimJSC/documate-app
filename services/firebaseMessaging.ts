@@ -24,7 +24,10 @@
 
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
+import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+
+const DEVICE_TOKEN_ID_KEY = "deviceTokenId";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 
@@ -217,16 +220,13 @@ export async function registerFcmTokenToServer(fcmToken: string) {
     return;
   }
 
-  const response = await fetch(`${BASE_URL}/notifications/push-token`, {
+  const response = await fetch(`${BASE_URL}/notifications/device-tokens`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       token: fcmToken,
-      platform: Platform.OS,
-      // Section 1: provider를 "EXPO"로 변경하도록 백엔드와 협의 필요
-      // Section 2: "FCM" 사용
-      provider: "FCM",
+      platform: Platform.OS.toUpperCase(),
     }),
   });
 
@@ -235,5 +235,25 @@ export async function registerFcmTokenToServer(fcmToken: string) {
     throw new Error(`FCM 토큰 등록 실패: ${response.status} ${errorText}`);
   }
 
-  return response.json();
+  const json = await response.json();
+  const tokenId: string | undefined = json?.tokenId;
+  if (tokenId) {
+    await SecureStore.setItemAsync(DEVICE_TOKEN_ID_KEY, tokenId);
+  }
+  return json;
+}
+
+export async function unregisterDeviceToken() {
+  if (!BASE_URL) return;
+  try {
+    const tokenId = await SecureStore.getItemAsync(DEVICE_TOKEN_ID_KEY);
+    if (!tokenId) return;
+    await fetch(`${BASE_URL}/notifications/device-tokens/${tokenId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    await SecureStore.deleteItemAsync(DEVICE_TOKEN_ID_KEY);
+  } catch (e) {
+    console.log("디바이스 토큰 해제 실패:", e);
+  }
 }

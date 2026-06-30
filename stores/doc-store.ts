@@ -7,6 +7,7 @@ import {
   getDocumentCategories,
   getDocuments,
   updateDocumentFavorite,
+  updateDocumentSecured,
 } from '@/services/document';
 import { create } from 'zustand';
 
@@ -103,7 +104,13 @@ export const useDocStore = create<DocState>()((set, get) => ({
         sort: "createdAt",
         order: "DESC",
       });
-      set({ documents: result.items.map(toDocument) });
+      const existing = get().documents;
+      set({
+        documents: result.items.map((item) => {
+          const local = existing.find((d) => d.id === item.documentId);
+          return { ...toDocument(item), isSecured: local?.isSecured ?? false };
+        }),
+      });
     } catch (error) {
       console.error("문서 목록 조회 실패:", error);
     } finally {
@@ -171,13 +178,17 @@ export const useDocStore = create<DocState>()((set, get) => ({
   },
 
   toggleSecured: (id) => {
+    const doc = get().documents.find((d) => d.id === id);
+    if (!doc) return;
+    const next = !doc.isSecured;
     set((state) => ({
       documents: state.documents.map((document) =>
-        document.id === id
-          ? { ...document, isSecured: !document.isSecured }
-          : document,
+        document.id === id ? { ...document, isSecured: next } : document,
       ),
     }));
+    if (!isLocalDraft(id)) {
+      updateDocumentSecured(id, next).catch(() => {});
+    }
   },
 
   setSearchQuery: (q) => set({ searchQuery: q }),

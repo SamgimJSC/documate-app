@@ -7,7 +7,6 @@ import {
   updateDocument as apiUpdateDocument,
 } from '@/services/document';
 import { cancelNotification, createDocumentAlert, scheduleExpiryNotification } from '@/services/notifications';
-import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { showToast } from '@/stores/toast-store';
 import { getErrorMessage } from '@/utils/error';
@@ -19,11 +18,9 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -73,8 +70,7 @@ const FILE_TYPE_LABELS: Record<string, string> = {
 export default function DocumentEditScreen() {
   const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
   const router = useRouter();
-  const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId, toggleSecured } = useDocStore();
-  const { pin: storedPin } = useAuthStore();
+  const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
   const isManual = manual === '1';
@@ -111,10 +107,6 @@ export default function DocumentEditScreen() {
   const [notiMenuOpen, setNotiMenuOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pinModalVisible, setPinModalVisible] = useState(false);
-  const [pinModalInput, setPinModalInput] = useState('');
-  const [pinModalError, setPinModalError] = useState(false);
-  const [pinModalPurpose, setPinModalPurpose] = useState<'enable' | 'disable'>('enable');
 
   if (!doc) {
     return (
@@ -317,36 +309,6 @@ export default function DocumentEditScreen() {
     try { await commitSave(); } finally { setSaving(false); }
   };
 
-  const PIN_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','del']];
-
-  const handleToggleSecured = () => {
-    if (!storedPin) {
-      showToast('먼저 PIN을 설정해주세요.', 'error');
-      return;
-    }
-    setPinModalPurpose(doc.isSecured ? 'disable' : 'enable');
-    setPinModalInput('');
-    setPinModalError(false);
-    setPinModalVisible(true);
-  };
-
-  const handlePinModalDigit = (digit: string) => {
-    if (pinModalInput.length >= 4) return;
-    const next = pinModalInput + digit;
-    setPinModalInput(next);
-    setPinModalError(false);
-    if (next.length === 4) {
-      if (next === storedPin) {
-        toggleSecured(doc.id);
-        setPinModalVisible(false);
-        setPinModalInput('');
-      } else {
-        setPinModalError(true);
-        setTimeout(() => { setPinModalInput(''); setPinModalError(false); }, 600);
-      }
-    }
-  };
-
   const fileSizeLabel = doc.fileSizeBytes
     ? doc.fileSizeBytes < 1024 * 1024
       ? `${(doc.fileSizeBytes / 1024).toFixed(0)}KB`
@@ -465,8 +427,8 @@ export default function DocumentEditScreen() {
           {/* AI 추출 정보 (카테고리별 동적 필드) */}
           <Text style={styles.sectionLabel}>AI 추출 정보</Text>
           <View style={styles.card}>
-            {CATEGORY_FIELDS[category].map((field, idx) => {
-              const isLast = idx === CATEGORY_FIELDS[category].length - 1;
+            {(CATEGORY_FIELDS[category] ?? []).map((field, idx) => {
+              const isLast = idx === (CATEGORY_FIELDS[category] ?? []).length - 1;
               return (
                 <View
                   key={field.key}
@@ -595,23 +557,6 @@ export default function DocumentEditScreen() {
             )}
           </View>
 
-          {/* 문서 보호 */}
-          <Text style={styles.sectionLabel}>문서 보호</Text>
-          <View style={styles.card}>
-            <View style={[styles.fieldRow, styles.fieldRowLast]}>
-              <View style={styles.secureRowInfo}>
-                <Text style={styles.fieldKey}>PIN 보호</Text>
-                <Text style={styles.secureRowSub}>{doc.isSecured ? '보안 문서로 설정됨' : '설정 안 됨'}</Text>
-              </View>
-              <Switch
-                value={!!doc.isSecured}
-                onValueChange={handleToggleSecured}
-                trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
-                thumbColor={doc.isSecured ? Colors.primary : Colors.gray400}
-              />
-            </View>
-          </View>
-
           {/* 사진 첨부 (수기 등록일 때만) */}
           {isManual && (
             <>
@@ -640,69 +585,6 @@ export default function DocumentEditScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* PIN 인증 모달 */}
-      <Modal
-        visible={pinModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setPinModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {pinModalPurpose === 'enable' ? '보안 문서로 설정' : '보안 해제'}
-            </Text>
-            <Text style={styles.modalSubtitle}>PIN 번호를 입력해주세요</Text>
-            <View style={styles.pinDots}>
-              {[0, 1, 2, 3].map((i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.pinDot,
-                    pinModalInput.length > i && styles.pinDotFilled,
-                    pinModalError && styles.pinDotError,
-                  ]}
-                />
-              ))}
-            </View>
-            {pinModalError && <Text style={styles.pinErrorText}>PIN이 올바르지 않습니다</Text>}
-            <View style={styles.pinPad}>
-              {PIN_ROWS.map((row, ri) => (
-                <View key={ri} style={styles.pinRow}>
-                  {row.map((key) =>
-                    key === '' ? (
-                      <View key="empty" style={styles.pinKey} />
-                    ) : key === 'del' ? (
-                      <TouchableOpacity
-                        key="del"
-                        style={styles.pinKey}
-                        onPress={() => setPinModalInput((p) => p.slice(0, -1))}
-                      >
-                        <Ionicons name="backspace-outline" size={22} color={Colors.gray700} />
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        key={key}
-                        style={styles.pinKey}
-                        onPress={() => handlePinModalDigit(key)}
-                      >
-                        <Text style={styles.pinKeyText}>{key}</Text>
-                      </TouchableOpacity>
-                    )
-                  )}
-                </View>
-              ))}
-            </View>
-            <TouchableOpacity
-              style={styles.modalCancel}
-              onPress={() => setPinModalVisible(false)}
-            >
-              <Text style={styles.modalCancelText}>취소</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {photoSheetOpen && (
         <View style={styles.sheetRoot}>
@@ -975,37 +857,4 @@ const styles = StyleSheet.create({
   },
   sheetCancelText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
 
-  // 문서 보호
-  secureRowInfo: { flex: 1, marginRight: Spacing.md },
-  secureRowSub: { fontSize: 12, color: Colors.gray400, marginTop: 2 },
-
-  // PIN 인증 모달
-  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  modalCard: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl,
-    borderTopRightRadius: Radius.xl,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
-    paddingBottom: 40,
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.gray900 },
-  modalSubtitle: { fontSize: 14, color: Colors.gray500 },
-  modalCancel: { marginTop: Spacing.sm, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.xl },
-  modalCancelText: { fontSize: 15, color: Colors.gray500, fontWeight: '500' },
-  pinDots: { flexDirection: 'row', gap: 16, marginVertical: Spacing.md },
-  pinDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: Colors.gray300, backgroundColor: 'transparent' },
-  pinDotFilled: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  pinDotError: { borderColor: Colors.error, backgroundColor: Colors.error },
-  pinErrorText: { fontSize: 13, color: Colors.error, marginTop: -Spacing.xs },
-  pinPad: { width: '100%', maxWidth: 280, gap: 8, marginTop: Spacing.sm },
-  pinRow: { flexDirection: 'row', gap: 8 },
-  pinKey: {
-    flex: 1, height: 64, borderRadius: Radius.lg,
-    backgroundColor: Colors.white, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.gray100,
-  },
-  pinKeyText: { fontSize: 22, fontWeight: '600', color: Colors.gray900 },
 });
