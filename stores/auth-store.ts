@@ -93,10 +93,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       isPinVerified: false,
       isPinSet: false,
       pin: "",
+      isBiometricEnabled: false,
     });
   },
 
-  // 실제 가입은 pin-setup.tsx에서 /auth/signup을 직접 호출함
   register: async (_email, _password, _nickname) => {},
 
   checkEmailExists: async (email) => {
@@ -121,9 +121,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   setPin: (pin) => set({ pin, isPinSet: true }),
 
-  verifyPin: (pin) => {
-    return get().pin === pin;
-  },
+  verifyPin: (pin) => get().pin === pin,
 
   verifyPinWithServer: async (pinNumber) => {
     try {
@@ -141,9 +139,15 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   setPinVerified: (verified) => set({ isPinVerified: verified }),
 
-  enableBiometric: () => set({ isBiometricEnabled: true }),
+  enableBiometric: () => {
+    void SecureStore.setItemAsync("biometricEnabled", "true");
+    set({ isBiometricEnabled: true });
+  },
 
-  disableBiometric: () => set({ isBiometricEnabled: false }),
+  disableBiometric: () => {
+    void SecureStore.deleteItemAsync("biometricEnabled");
+    set({ isBiometricEnabled: false });
+  },
 
   updateNickname: (nickname) =>
     set((state) => ({
@@ -152,8 +156,6 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   upgradeToPro: () =>
     set((state) => ({
-      user: state.user
-        ? { ...state.user, plan: "pro", storageLimit: 50 }
-        : null,
+      user: state.user ? { ...state.user, plan: "pro", storageLimit: 50 } : null,
     })),
 }));

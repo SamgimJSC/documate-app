@@ -9,6 +9,7 @@ interface ReceiptState {
 
   fetchReceipts: (month?: string) => Promise<void>;
   addReceipt: (receipt: Receipt) => void;
+  updateReceipt: (receipt: Receipt) => void;
   removeReceipt: (id: string) => void;
   toggleFavorite: (id: string) => void;
   setSelectedMonth: (month: string) => void;
@@ -41,6 +42,11 @@ export const useReceiptStore = create<ReceiptState>()((set, get) => ({
 
   addReceipt: (receipt) =>
     set((state) => ({ receipts: [receipt, ...state.receipts] })),
+
+  updateReceipt: (receipt) =>
+    set((state) => ({
+      receipts: state.receipts.map((r) => (r.id === receipt.id ? receipt : r)),
+    })),
 
   removeReceipt: (id) =>
     set((state) => ({ receipts: state.receipts.filter((r) => r.id !== id) })),

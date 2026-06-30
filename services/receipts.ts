@@ -26,11 +26,29 @@ type ApiReceiptItem = {
   fileUrl?: string | null;
   image_url?: string;
   imageUri?: string;
+  storeAddress?: string | null;
+  store_address?: string | null;
+  paymentItem?: string | null;
+  payment_item?: string | null;
+  memo?: string | null;
+  inputMethod?: string;
+  input_method?: string;
   isConfirmed?: boolean;
   is_favorite?: boolean;
   isFavorite?: boolean;
   createdAt?: string;
   items?: { name: string; price: number }[];
+};
+
+type UpdateReceiptPayload = {
+  storeName?: string;
+  storeAddress?: string;
+  totalAmount?: number;
+  purchaseDate?: string;
+  spendCategoryId?: number;
+  paymentItem?: string;
+  memo?: string;
+  isConfirmed?: boolean;
 };
 
 type GetReceiptsResponse = {
@@ -88,6 +106,10 @@ function toReceipt(receipt: ApiReceiptItem): Receipt {
     imageUri: receipt.fileUrl ?? receipt.image_url ?? receipt.imageUri ?? undefined,
     isFavorite: receipt.is_favorite ?? receipt.isFavorite ?? false,
     items: receipt.items,
+    storeAddress: receipt.storeAddress ?? receipt.store_address ?? undefined,
+    paymentItem: receipt.paymentItem ?? receipt.payment_item ?? undefined,
+    memo: receipt.memo ?? undefined,
+    inputMethod: receipt.inputMethod ?? receipt.input_method,
   };
 }
 
@@ -109,6 +131,8 @@ async function receiptRequest<T>(
     const errorText = await response.text();
     throw new Error(`Receipts API 요청 실패: ${response.status} ${errorText}`);
   }
+
+  if (response.status === 204) return undefined as T;
 
   return response.json();
 }
@@ -163,4 +187,20 @@ export async function updateReceiptFavorite(
     `/receipts/${receiptId}/favorite`,
     { method: 'PATCH', body: JSON.stringify({ is_favorite: isFavorite }) },
   );
+}
+
+export async function updateReceipt(
+  receiptId: string,
+  payload: UpdateReceiptPayload,
+): Promise<Receipt> {
+  const result = await receiptRequest<ApiReceiptItem | ApiResponse<ApiReceiptItem>>(
+    `/receipts/${receiptId}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+  const updated = unwrapApiResponse<ApiReceiptItem>(result);
+  return toReceipt(updated);
+}
+
+export async function deleteReceipt(receiptId: string): Promise<void> {
+  await receiptRequest<void>(`/receipts/${receiptId}`, { method: 'DELETE' });
 }

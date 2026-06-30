@@ -40,9 +40,11 @@ export function Input({
           style={styles.input}
           placeholderTextColor={Colors.gray400}
           secureTextEntry={isPassword && !showPw}
-          textContentType={isPassword ? "none" : undefined}
-          autoComplete={isPassword ? "off" : undefined}
           {...props}
+          textContentType={isPassword ? "none" : props.textContentType}
+          autoComplete={isPassword ? "off" : props.autoComplete}
+          importantForAutofill={isPassword ? "no" : props.importantForAutofill}
+          passwordRules={isPassword ? "" : props.passwordRules}
         />
         {isPassword && (
           <TouchableOpacity
