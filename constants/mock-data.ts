@@ -45,5 +45,9 @@ export interface Receipt {
   imageUri?: string;
   isFavorite: boolean;
   items?: { name: string; price: number }[];
+  storeAddress?: string;
+  paymentItem?: string;
+  memo?: string;
+  inputMethod?: 'OCR' | 'MANUAL' | string;
 }
 

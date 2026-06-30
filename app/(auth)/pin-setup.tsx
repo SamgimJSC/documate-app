@@ -1,5 +1,6 @@
 import { PinPad } from "@/components/common/pin-pad";
 import { Colors, Radius, Spacing } from "@/constants/theme";
+import { rememberPinLoginEmail } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -34,6 +35,7 @@ export default function PinSetupScreen() {
               pinNumber: val,
               emailVerificationId: params.emailVerificationId,
             });
+            await rememberPinLoginEmail(params.email ?? "");
             setPin(val);
             setPinVerified(true);
             setShowCompleteModal(true);
