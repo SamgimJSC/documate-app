@@ -1,14 +1,16 @@
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Colors, Radius, Spacing } from "@/constants/theme";
+import { getCurrentUser, rememberPinLoginEmail } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import * as LocalAuthentication from "expo-local-authentication";
+import * as SecureStore from "expo-secure-store";
 import { useRouter } from "expo-router";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -22,13 +24,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const login = useAuthStore((s) => s.login);
   const isBiometricEnabled = useAuthStore((s) => s.isBiometricEnabled);
-  const setPinVerified = useAuthStore((s) => s.setPinVerified);
+  const enableBiometric = useAuthStore((s) => s.enableBiometric);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    SecureStore.getItemAsync("biometricEnabled").then((enabled) => {
+      if (enabled === "true") enableBiometric();
+    });
+  }, [enableBiometric]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -40,6 +47,7 @@ export default function LoginScreen() {
 
     try {
       await axiosInstance.post("/auth/login", { email, password });
+      await rememberPinLoginEmail(email);
 
       const userRes = await axiosInstance.get("/users/me");
       const userData = userRes.data;
@@ -77,20 +85,14 @@ export default function LoginScreen() {
     }
   };
 
-  const isPinSet = useAuthStore((s) => s.isPinSet);
-
   const handlePinLogin = () => {
     setError("");
-    if (!isPinSet) {
-      router.push("/(auth)/pin-setup" as any);
-      return;
-    }
     router.push("/(auth)/pin-verify" as any);
   };
 
   const handleBiometricLogin = async () => {
     if (!isBiometricEnabled) {
-      router.push("/(auth)/biometric-setup" as any);
+      setError("먼저 이메일로 로그인한 뒤 생체인식을 설정해주세요.");
       return;
     }
 
@@ -101,25 +103,23 @@ export default function LoginScreen() {
       });
 
       if (result.success) {
-        await login(email || "biometric@documate.test", "");
-        setPinVerified(true);
+        const user = await getCurrentUser();
+        useAuthStore.setState({
+          user,
+          token: "session",
+          isAuthenticated: true,
+          isPinSet: true,
+          isPinVerified: true,
+          isBiometricEnabled: true,
+        });
         router.replace("/(tabs)");
       }
-    } catch {
-      setError("생체인증에 실패했습니다. 다시 시도해주세요.");
-    }
-  };
-
-  const handleKakaoLogin = async () => {
-    setError("");
-    setLoading(true);
-    try {
-      await login("kakao@documate.test", "");
-      router.replace("/(tabs)");
-    } catch {
-      setError("카카오 로그인에 실패했습니다.");
-    } finally {
-      setLoading(false);
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        setError("로그인 정보가 만료되었습니다. 이메일로 다시 로그인해주세요.");
+      } else {
+        setError("생체인증에 실패했습니다. 다시 시도해주세요.");
+      }
     }
   };
 
@@ -182,9 +182,7 @@ export default function LoginScreen() {
 
             <View style={styles.altButtons}>
               <Button
-                label={
-                  isBiometricEnabled ? "생체인증으로 로그인" : "생체인증 설정"
-                }
+                label="생체인증으로 로그인"
                 onPress={handleBiometricLogin}
                 variant={isBiometricEnabled ? "secondary" : "outline"}
                 size="sm"
@@ -200,16 +198,6 @@ export default function LoginScreen() {
                 fullWidth={false}
                 style={styles.altButton}
                 textStyle={styles.altButtonText}
-              />
-            </View>
-
-            <View style={styles.kakaoLoginRow}>
-              <Button
-                label="카카오로 로그인"
-                onPress={handleKakaoLogin}
-                variant="ghost"
-                size="md"
-                fullWidth={true}
               />
             </View>
 
@@ -279,5 +267,4 @@ const styles = StyleSheet.create({
   },
   altButton: { flex: 1 },
   altButtonText: { fontSize: 14 },
-  kakaoLoginRow: { marginTop: Spacing.md },
 });

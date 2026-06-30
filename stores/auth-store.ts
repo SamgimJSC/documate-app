@@ -1,3 +1,4 @@
+import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
 export interface User {
@@ -81,7 +82,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     });
   },
 
-  logout: () =>
+  logout: () => {
+    void Promise.all([
+      SecureStore.deleteItemAsync("accessToken"),
+      SecureStore.deleteItemAsync("biometricEnabled"),
+    ]);
     set({
       user: null,
       token: null,
@@ -89,7 +94,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       isPinVerified: false,
       isPinSet: false,
       pin: "",
-    }),
+      isBiometricEnabled: false,
+    });
+  },
 
   // TODO [배포 전]: POST /auth/register API 실제 호출로 교체.
   //   - 서버에서 이메일 중복 체크를 담당하므로 REGISTERED_EMAILS Set 제거
@@ -149,9 +156,15 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   setPinVerified: (verified) => set({ isPinVerified: verified }),
 
-  enableBiometric: () => set({ isBiometricEnabled: true }),
+  enableBiometric: () => {
+    void SecureStore.setItemAsync("biometricEnabled", "true");
+    set({ isBiometricEnabled: true });
+  },
 
-  disableBiometric: () => set({ isBiometricEnabled: false }),
+  disableBiometric: () => {
+    void SecureStore.deleteItemAsync("biometricEnabled");
+    set({ isBiometricEnabled: false });
+  },
 
   updateNickname: (nickname) =>
     set((state) => ({

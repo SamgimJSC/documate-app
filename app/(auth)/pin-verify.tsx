@@ -1,79 +1,141 @@
 import { PinPad } from "@/components/common/pin-pad";
 import { Colors, Radius, Spacing } from "@/constants/theme";
+import { getCurrentUser, loginWithPin } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
+  useAuthStore.setState({
+    user,
+    token: "session",
+    isAuthenticated: true,
+    isPinSet: true,
+    isPinVerified: true,
+  });
+}
 
 export default function PinVerifyScreen() {
   const router = useRouter();
-  const { verifyPin, isBiometricEnabled, logout, user } = useAuthStore();
+  const { isBiometricEnabled, logout } = useAuthStore();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [attempts, setAttempts] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  const handlePin = (val: string) => {
-    setPin(val);
-    if (val.length === 6) {
-      if (verifyPin(val)) {
-        // Ensure auth flags are set on the store (avoid race with guard)
-        useAuthStore.setState({ isAuthenticated: true, isPinVerified: true });
-        router.replace("/(tabs)");
+  const handlePin = async (value: string) => {
+    if (loading) return;
+
+    setPin(value);
+    setError("");
+    if (value.length !== 6) return;
+
+    setLoading(true);
+    try {
+      await loginWithPin(value);
+
+      const user = await getCurrentUser();
+      completeLogin(user);
+      router.replace("/(tabs)");
+    } catch (err: unknown) {
+      const nextAttempts = attempts + 1;
+      setAttempts(nextAttempts);
+      setPin("");
+
+      const errorCode = axios.isAxiosError(err)
+        ? err.response?.data?.errorCode
+        : undefined;
+
+      if (
+        err instanceof Error &&
+        err.message === "PIN_LOGIN_EMAIL_NOT_FOUND"
+      ) {
+        setError("이 기기에 등록된 계정이 없습니다. 먼저 이메일로 로그인해주세요.");
+      } else if (errorCode === "USER_NOT_FOUND") {
+        setError("저장된 계정을 찾을 수 없습니다. 이메일로 다시 로그인해주세요.");
+      } else if (errorCode === "PIN_NOT_SET") {
+        setError("이 계정에는 PIN이 설정되어 있지 않습니다.");
+      } else if (errorCode === "PIN_LOCKED" || nextAttempts >= 5) {
+        setError("PIN 로그인이 잠겼습니다. 이메일과 비밀번호로 로그인해주세요.");
+      } else if (errorCode === "INVALID_PIN") {
+        setError("PIN이 올바르지 않습니다. 다시 입력해주세요.");
       } else {
-        setAttempts((a) => a + 1);
-        setError(
-          attempts >= 2
-            ? "5회 오류 시 계정이 잠깁니다."
-            : "잘못된 PIN입니다. 다시 시도해주세요.",
-        );
-        setPin("");
+        setError("PIN 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.");
       }
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleBiometric = async () => {
+    if (loading) return;
+
+    setError("");
+    setLoading(true);
     try {
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "DocuMate에 접근합니다",
+        promptMessage: "DocuMate에 로그인합니다",
         cancelLabel: "취소",
+        disableDeviceFallback: false,
       });
-      if (result.success) {
-        useAuthStore.setState({ isAuthenticated: true, isPinVerified: true });
-        router.replace("/(tabs)");
-      }
+      if (!result.success) return;
+
+      const user = await getCurrentUser();
+      completeLogin(user);
+      router.replace("/(tabs)");
     } catch {
-      // ignore
+      setError("생체인식 로그인에 실패했습니다. PIN 또는 이메일로 로그인해주세요.");
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleOtherAccount = () => {
+    logout();
+    router.replace("/(auth)/login");
   };
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.top}>
-          <View style={styles.avatarWrap}>
-            <Ionicons name="person" size={36} color={Colors.primary} />
+          <View style={styles.iconWrap}>
+            <Ionicons name="lock-closed" size={34} color={Colors.primary} />
           </View>
-          <Text style={styles.welcome}>
-            안녕하세요, {user?.nickname ?? ""}님
-          </Text>
-          <Text style={styles.desc}>PIN을 입력해 앱에 접근하세요</Text>
+          <Text style={styles.title}>PIN 로그인</Text>
+          <Text style={styles.desc}>회원가입 시 설정한 6자리 PIN을 입력해주세요.</Text>
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <PinPad value={pin} onChange={handlePin} />
+        <View style={styles.pinArea}>
+          <PinPad value={pin} onChange={handlePin} />
+          {loading ? (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator color={Colors.primary} />
+            </View>
+          ) : null}
+        </View>
 
-        {isBiometricEnabled && (
+        {isBiometricEnabled ? (
           <TouchableOpacity onPress={handleBiometric} style={styles.bioBtn}>
             <Ionicons name="finger-print" size={28} color={Colors.primary} />
-            <Text style={styles.bioText}>생체인증 사용</Text>
+            <Text style={styles.bioText}>생체인식으로 로그인</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
 
-        <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+        <TouchableOpacity onPress={handleOtherAccount} style={styles.logoutBtn}>
           <Text style={styles.logoutText}>다른 계정으로 로그인</Text>
         </TouchableOpacity>
       </View>
@@ -91,7 +153,7 @@ const styles = StyleSheet.create({
     gap: Spacing.xl,
   },
   top: { alignItems: "center", gap: Spacing.sm },
-  avatarWrap: {
+  iconWrap: {
     width: 80,
     height: 80,
     borderRadius: Radius.full,
@@ -99,9 +161,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  welcome: { fontSize: 20, fontWeight: "700", color: Colors.gray900 },
-  desc: { fontSize: 14, color: Colors.gray500 },
+  title: { fontSize: 22, fontWeight: "700", color: Colors.gray900 },
+  desc: { fontSize: 14, color: Colors.gray500, textAlign: "center" },
   error: { fontSize: 13, color: Colors.error, textAlign: "center" },
+  pinArea: { position: "relative" },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(247,249,251,0.7)",
+  },
   bioBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -110,5 +179,5 @@ const styles = StyleSheet.create({
   },
   bioText: { fontSize: 15, color: Colors.primary, fontWeight: "600" },
   logoutBtn: { padding: Spacing.sm },
-  logoutText: { fontSize: 13, color: Colors.gray400 },
+  logoutText: { fontSize: 13, color: Colors.gray500 },
 });

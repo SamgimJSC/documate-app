@@ -40,11 +40,6 @@ export function Input({
           style={styles.input}
           placeholderTextColor={Colors.gray400}
           secureTextEntry={isPassword && !showPw}
-<<<<<<< HEAD
-=======
-          textContentType={isPassword ? "none" : undefined}
-          autoComplete={isPassword ? "off" : undefined}
->>>>>>> ae3db56a30af22046775638df9a96575e5071c27
           {...props}
           textContentType={isPassword ? "none" : props.textContentType}
           autoComplete={isPassword ? "off" : props.autoComplete}
