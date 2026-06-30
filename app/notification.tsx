@@ -47,8 +47,8 @@ export default function NotificationScreen() {
     try {
       setLoading(true);
       setError(null);
-      const data = await getServerNotifications({ status, page: 1, per_page: 20 });
-      setNotifications(data.notifications);
+      const list = await getServerNotifications({ status, page: 1, per_page: 20 });
+      setNotifications(list);
     } catch (e) {
       console.log('알림 목록 조회 실패:', e);
       setError('알림을 불러오지 못했습니다. 서버 연결을 확인해주세요.');

@@ -1,12 +1,14 @@
 import { Badge } from "@/components/common/badge";
 import { DocumentCategory } from "@/constants/mock-data";
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
+import { useAuthStore } from "@/stores/auth-store";
 import { useDocStore } from "@/stores/doc-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -53,7 +55,9 @@ export default function CabinetScreen() {
     setSearchQuery,
     setSelectedCategory,
     toggleFavorite,
+    toggleSecured,
   } = useDocStore();
+  const { isPinSet } = useAuthStore();
 
   const [catFilter, setCatFilter] =
     useState<DocumentCategory | "전체">("전체");
@@ -269,6 +273,23 @@ export default function CabinetScreen() {
                 </View>
                 <View style={styles.docRight}>
                   {getStatusBadge(doc.status)}
+                  <TouchableOpacity
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      if (!doc.isSecured && !isPinSet) {
+                        Alert.alert('PIN 미설정', 'PIN을 먼저 설정해야 문서를 잠글 수 있습니다.\n마이페이지 > PIN 설정에서 등록해주세요.');
+                        return;
+                      }
+                      toggleSecured(doc.id);
+                    }}
+                    style={styles.favBtn}
+                  >
+                    <Ionicons
+                      name={doc.isSecured ? "lock-closed" : "lock-open-outline"}
+                      size={18}
+                      color={doc.isSecured ? Colors.primary : Colors.gray300}
+                    />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     onPress={(event) => {
                       event.stopPropagation();

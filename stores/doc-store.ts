@@ -48,8 +48,16 @@ function toDocument(item: DocumentItem): Document {
     uploadedAt: item.createdAt?.split("T")[0] ?? today,
     expiryDate: expiry,
     imageUri: item.fileUrl,
+    fileType: item.fileType,
     tags: item.documentTags?.map((docTag) => docTag.tag.name) ?? [],
     isFavorite: item.isFavorite ?? false,
+    isSecured: false,
+    issueDate: item.issueDate ?? undefined,
+    renewalDate: item.renewalDate ?? undefined,
+    documentTags: item.documentTags?.map((dt) => ({ name: dt.tag.name, tagId: dt.tag.tagId })) ?? [],
+    aiStatus: item.aiStatus,
+    aiConfidence: item.aiConfidence ?? undefined,
+    fileSizeBytes: item.fileSizeBytes ? Number(item.fileSizeBytes) : undefined,
     status,
     extractedData,
     notifications: [],
@@ -72,6 +80,7 @@ interface DocState {
   setDocument: (docs: Document[]) => void;
   removeDocument: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
+  toggleSecured: (id: string) => void;
   setSearchQuery: (q: string) => void;
   setSelectedCategory: (cat: string | null) => void;
   updateDocument: (id: string, updates: Partial<Document>) => void;
@@ -162,6 +171,16 @@ export const useDocStore = create<DocState>()((set, get) => ({
         console.error("즐겨찾기 API 실패:", error);
       }
     }
+  },
+
+  toggleSecured: (id) => {
+    set((state) => ({
+      documents: state.documents.map((document) =>
+        document.id === id
+          ? { ...document, isSecured: !document.isSecured }
+          : document,
+      ),
+    }));
   },
 
   setSearchQuery: (q) => set({ searchQuery: q }),

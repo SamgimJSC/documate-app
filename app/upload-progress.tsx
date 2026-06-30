@@ -1,169 +1,173 @@
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { uploadDocumentFile } from '@/services/document';
+import {
+  AiStatusResponse,
+  TempFileType,
+  createTempUpload,
+  pollUntilDone,
+  requestAiAnalysis,
+  uploadToS3,
+} from '@/services/upload';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type ItemStatus = 'waiting' | 'uploading' | 'done' | 'error';
+type ItemStatus = 'waiting' | 'uploading' | 'analyzing' | 'done' | 'error';
 
 export default function UploadProgressScreen() {
   const router = useRouter();
-  // uris: 업로드할 사진 배열(JSON). manual: 수기 모드 여부. docId: 수기 모드에서 이미 만든 문서 id
-  const { uris, manual, docId } = useLocalSearchParams<{
-    uris: string;
-    manual?: string;
-    docId?: string;
-  }>();
-  const { addDocument, fetchDocuments } = useDocStore();
-
-  const isManual = manual === '1';
+  const { uris } = useLocalSearchParams<{ uris: string }>();
+  const { fetchDocuments } = useDocStore();
 
   const imageUris: string[] = (() => {
-    try {
-      return uris ? JSON.parse(uris) : [];
-    } catch {
-      return [];
-    }
+    try { return uris ? JSON.parse(uris) : []; } catch { return []; }
   })();
 
   const [statuses, setStatuses] = useState<ItemStatus[]>(imageUris.map(() => 'waiting'));
   const startedRef = useRef(false);
   const finishedRef = useRef(false);
 
-  // 업로드 끝난 뒤 도착지로 이동
-  const goNext = (uploadedIds: string[]) => {
+  const updateStatus = (index: number, status: ItemStatus) =>
+    setStatuses((prev) => prev.map((s, k) => (k === index ? status : s)));
+
+  const goNext = (results: AiStatusResponse[]) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    fetchDocuments();
 
-    if (isManual) {
-      router.replace(`/document/${docId}`);
-      return;
-    }
-
-    if (uploadedIds.length === 1) {
-      router.replace(`/document/${uploadedIds[0]}`);
+    const done = results.filter((r) => r.aiStatus === 'DONE' && r.resultId);
+    if (done.length === 1) {
+      const { documentType, resultId } = done[0];
+      if (documentType === 'RECEIPT') {
+        router.replace(`/receipt-detail/${resultId}` as any);
+      } else {
+        router.replace(`/document/${resultId}` as any);
+      }
     } else {
       router.replace('/(tabs)/cabinet');
     }
   };
 
-  // 사진을 하나씩 차례로 서버에 업로드
   useEffect(() => {
     if (startedRef.current || imageUris.length === 0) return;
     startedRef.current = true;
 
-    const runUploads = async () => {
-      const uploadedIds: string[] = [];
+    const run = async () => {
+      const results: AiStatusResponse[] = [];
 
       for (let i = 0; i < imageUris.length; i++) {
         const uri = imageUris[i];
-        setStatuses((prev) => prev.map((s, k) => (k === i ? 'uploading' : s)));
+        // uri 확장자로 fileType 판별 (기본 JPG)
+        const fileType: TempFileType = uri.toLowerCase().endsWith('.png') ? 'PNG' : 'JPG';
+        const mimeType = fileType === 'PNG' ? 'image/png' : 'image/jpeg';
 
         try {
-          const fileName = `upload_${Date.now()}_${i}.jpg`;
-          const item = await uploadDocumentFile(uri, fileName, 'image/jpeg');
+          // 1단계: presigned URL + tempDocumentId 발급
+          updateStatus(i, 'uploading');
+          const { tempDocumentId, uploadUrl } = await createTempUpload({ fileType, pageCount: 1 });
 
-          const today = new Date().toISOString().split('T')[0];
-          addDocument({
-            id: item.documentId,
-            categoryId: item.categoryId ?? undefined,
-            title: item.title,
-            category: (item.category?.name ?? '기타') as any,
-            uploadedAt: item.createdAt?.split('T')[0] ?? today,
-            expiryDate: item.expiryDate ?? undefined,
-            imageUri: item.fileUrl,
-            tags: item.documentTags?.map((dt) => dt.tag.name) ?? [],
-            isFavorite: item.isFavorite ?? false,
-            status: 'active',
-            extractedData: {
-              notes: typeof item.ocrText === 'string' ? item.ocrText : undefined,
-            },
-            notifications: [],
-          });
+          // 2단계: S3에 직접 업로드
+          await uploadToS3(uri, uploadUrl, mimeType);
 
-          uploadedIds.push(item.documentId);
-          setStatuses((prev) => prev.map((s, k) => (k === i ? 'done' : s)));
+          // 3단계: NestJS에 AI 분석 요청 (서버가 Redis에 push)
+          await requestAiAnalysis(tempDocumentId);
+          updateStatus(i, 'analyzing');
+
+          // 4단계: DONE / FAILED 될 때까지 폴링 (4초 간격, 최대 2분)
+          const result = await pollUntilDone(tempDocumentId);
+          results.push(result);
+          updateStatus(i, result.aiStatus === 'DONE' ? 'done' : 'error');
         } catch (e) {
-          console.error(`파일 ${i + 1} 업로드 실패:`, e);
-          setStatuses((prev) => prev.map((s, k) => (k === i ? 'error' : s)));
+          console.error(`파일 ${i + 1} 처리 실패:`, e);
+          updateStatus(i, 'error');
+          results.push({ tempDocumentId: '', aiStatus: 'FAILED' });
         }
       }
 
-      const hasAnySuccess = uploadedIds.length > 0;
-      const hasAnyError = statuses.some((s) => s === 'error');
+      const successes = results.filter((r) => r.aiStatus === 'DONE');
 
-      if (!hasAnySuccess) {
-        Alert.alert('업로드 실패', '파일 업로드에 실패했습니다. 다시 시도해주세요.', [
-          { text: '확인', onPress: () => router.back() },
-        ]);
-        return;
-      }
-
-      if (hasAnyError) {
+      if (successes.length === 0) {
         Alert.alert(
-          '일부 업로드 실패',
-          `${uploadedIds.length}/${imageUris.length}개 파일이 업로드되었습니다.`,
-          [{ text: '확인', onPress: () => setTimeout(() => goNext(uploadedIds), 300) }]
+          '분석 실패',
+          'AI가 문서를 인식하지 못했습니다.\n다시 촬영하거나 직접 입력해 주세요.',
+          [{ text: '확인', onPress: () => router.back() }],
         );
         return;
       }
 
-      setTimeout(() => goNext(uploadedIds), 600);
+      const failCount = results.length - successes.length;
+      if (failCount > 0) {
+        Alert.alert(
+          '일부 실패',
+          `${successes.length}/${imageUris.length}개가 분석되었습니다.`,
+          [{ text: '확인', onPress: () => setTimeout(() => goNext(results), 300) }],
+        );
+        return;
+      }
+
+      setTimeout(() => goNext(results), 600);
     };
 
-    runUploads();
+    run();
   }, [imageUris.length]);
 
   const doneCount = statuses.filter((s) => s === 'done').length;
   const errorCount = statuses.filter((s) => s === 'error').length;
+  const uploadingCount = statuses.filter((s) => s === 'uploading').length;
+  const analyzingCount = statuses.filter((s) => s === 'analyzing').length;
   const total = imageUris.length || 1;
-  const percent = Math.round(((doneCount + errorCount) / total) * 100);
-  const allDone = doneCount + errorCount === imageUris.length && imageUris.length > 0;
+  const progressCount = doneCount + errorCount;
+  const percent = Math.round((progressCount / total) * 100);
+  const allDone = progressCount === imageUris.length && imageUris.length > 0;
+
+  const progressLabel = allDone
+    ? errorCount === 0 ? '분석 완료!' : `${errorCount}개 실패`
+    : uploadingCount > 0
+      ? '파일을 업로드하고 있어요'
+      : analyzingCount > 0
+        ? 'AI가 문서를 분석하고 있어요'
+        : '잠시만 기다려주세요';
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <View style={{ width: 34 }} />
-        <Text style={styles.headerTitle}>
-          {isManual ? '사진 업로드' : '새 문서 업로드'}
-        </Text>
+        <Text style={styles.headerTitle}>새 문서 업로드</Text>
         <View style={{ width: 34 }} />
       </View>
 
-      {/* 원형 진행률 */}
       <View style={styles.progressTop}>
-        <View style={[styles.circle, allDone && (errorCount === 0 ? styles.circleDone : styles.circleError)]}>
-          <Text style={[styles.circlePercent, allDone && (errorCount === 0 ? { color: Colors.success } : { color: Colors.error })]}>
+        <View style={[
+          styles.circle,
+          allDone && (errorCount === 0 ? styles.circleDone : styles.circleError),
+        ]}>
+          <Text style={[
+            styles.circlePercent,
+            allDone && { color: errorCount === 0 ? Colors.success : Colors.error },
+          ]}>
             {percent}%
           </Text>
         </View>
-        <Text style={styles.progressLabel}>
-          {allDone
-            ? errorCount === 0 ? '업로드 완료!' : `${errorCount}개 실패`
-            : '스토리지에 파일을 업로드하고 있어요'}
-        </Text>
+        <Text style={styles.progressLabel}>{progressLabel}</Text>
       </View>
 
-      {/* 막대 진행률 */}
       <View style={styles.barRow}>
-        <Text style={styles.barLabel}>업로드 진행 ({doneCount}/{imageUris.length})</Text>
+        <Text style={styles.barLabel}>처리 진행 ({progressCount}/{imageUris.length})</Text>
         <Text style={styles.barPercent}>{percent}%</Text>
       </View>
       <View style={styles.barTrack}>
-        <View style={[styles.barFill, { width: `${percent}%` }]} />
+        <View style={[styles.barFill, { width: `${percent}%` as any }]} />
       </View>
 
-      {/* 사진 목록 */}
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {imageUris.map((uri, idx) => (
           <View key={idx} style={styles.item}>
@@ -176,6 +180,8 @@ export default function UploadProgressScreen() {
                 <Ionicons name="close-circle" size={24} color={Colors.error} />
               ) : statuses[idx] === 'uploading' ? (
                 <Text style={styles.uploadingText}>업로드중...</Text>
+              ) : statuses[idx] === 'analyzing' ? (
+                <Text style={styles.analyzingText}>AI 분석중...</Text>
               ) : (
                 <Text style={styles.waitingText}>대기</Text>
               )}
@@ -234,7 +240,8 @@ const styles = StyleSheet.create({
   },
   thumb: { width: 44, height: 44, borderRadius: Radius.sm, backgroundColor: Colors.gray100 },
   itemLabel: { flex: 1, fontSize: 14, color: Colors.gray800, fontWeight: '500' },
-  itemStatus: { minWidth: 70, alignItems: 'flex-end' },
+  itemStatus: { minWidth: 80, alignItems: 'flex-end' },
   uploadingText: { fontSize: 13, color: Colors.primary },
+  analyzingText: { fontSize: 13, color: Colors.warning },
   waitingText: { fontSize: 13, color: Colors.gray400 },
 });

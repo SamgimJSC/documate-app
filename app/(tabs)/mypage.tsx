@@ -211,12 +211,12 @@ export default function MyPageScreen() {
     setPasswordError(null);
   };
 
-  const handleVerifyCurrentPassword = () => {
+  const handleVerifyCurrentPassword = async () => {
     if (!currentPassword) {
       setPasswordError("현재 비밀번호를 입력해주세요.");
       return;
     }
-    if (!verifyPassword(currentPassword)) {
+    if (!(await verifyPassword(currentPassword))) {
       setPasswordError("현재 비밀번호가 올바르지 않습니다.");
       return;
     }
