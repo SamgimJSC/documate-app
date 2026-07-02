@@ -37,6 +37,9 @@ type ApiReceiptItem = {
   is_favorite?: boolean;
   isFavorite?: boolean;
   createdAt?: string;
+  created_at?: string;
+  fileSizeBytes?: number | string | null;
+  file_size_bytes?: number | string | null;
   items?: { name: string; price: number }[];
 };
 
@@ -52,11 +55,13 @@ type UpdateReceiptPayload = {
 };
 
 type GetReceiptsResponse = {
-  page: number;
-  size: number;
-  totalCount: number;
-  totalPages: number;
-  receipts: ApiReceiptItem[];
+  page?: number;
+  size?: number;
+  totalCount?: number;
+  totalPages?: number;
+  receipts?: ApiReceiptItem[];
+  items?: ApiReceiptItem[];
+  content?: ApiReceiptItem[];
 };
 
 type ReceiptSort = 'latest' | 'purchaseDate' | 'amountDesc' | 'amountAsc';
@@ -81,28 +86,23 @@ function unwrapApiResponse<T>(result: T | ApiResponse<T>): T {
   return result as T;
 }
 
-function parseMonth(month?: string | number) {
-  if (month === undefined || month === null || month === '') return {};
-  if (typeof month === 'number') return { month };
-
-  const match = month.match(/^(\d{4})-(\d{1,2})$/);
-  if (match) {
-    return { year: Number(match[1]), month: Number(match[2]) };
-  }
-
-  const value = Number(month);
-  return Number.isInteger(value) ? { month: value } : {};
-}
-
 function toReceipt(receipt: ApiReceiptItem): Receipt {
   const amount = Number(receipt.totalAmount ?? receipt.amount ?? 0);
+  const fileSizeBytes = Number(
+    receipt.fileSizeBytes ?? receipt.file_size_bytes ?? 0,
+  );
 
   return {
     id: receipt.receiptId ?? receipt.receipt_id ?? receipt.id ?? '',
     storeName: receipt.storeName ?? receipt.store_name ?? '',
     category: ((receipt.categoryName ?? receipt.category ?? '기타') as ReceiptCategory),
     amount: Number.isFinite(amount) ? amount : 0,
-    date: receipt.purchaseDate ?? receipt.date ?? receipt.createdAt?.slice(0, 10) ?? '',
+    date:
+      receipt.purchaseDate ??
+      receipt.date ??
+      receipt.createdAt?.slice(0, 10) ??
+      receipt.created_at?.slice(0, 10) ??
+      '',
     imageUri: receipt.fileUrl ?? receipt.image_url ?? receipt.imageUri ?? undefined,
     isFavorite: receipt.is_favorite ?? receipt.isFavorite ?? false,
     items: receipt.items,
@@ -110,6 +110,7 @@ function toReceipt(receipt: ApiReceiptItem): Receipt {
     paymentItem: receipt.paymentItem ?? receipt.payment_item ?? undefined,
     memo: receipt.memo ?? undefined,
     inputMethod: receipt.inputMethod ?? receipt.input_method,
+    fileSizeBytes: Number.isFinite(fileSizeBytes) ? fileSizeBytes : 0,
   };
 }
 
@@ -141,15 +142,11 @@ export async function getReceipts(
   params: GetReceiptsParams = {},
 ): Promise<Receipt[]> {
   const query = new URLSearchParams();
-  const parsedMonth = parseMonth(params.month);
-  const year = params.year ?? parsedMonth.year;
-  const month = parsedMonth.month;
-
   if (params.date) {
     query.append('date', params.date);
-  } else if (year && month) {
-    query.append('year', String(year));
-    query.append('month', String(month));
+  } else if (params.month !== undefined) {
+    query.append('month', String(params.month));
+    if (params.year !== undefined) query.append('year', String(params.year));
   } else {
     if (params.fromDate) query.append('fromDate', params.fromDate);
     if (params.toDate) query.append('toDate', params.toDate);
@@ -160,15 +157,21 @@ export async function getReceipts(
   }
   if (params.keyword) query.append('keyword', params.keyword);
   if (params.sort) query.append('sort', params.sort);
-  query.append('page', String(params.page ?? 1));
-  query.append('size', String(Math.min(params.size ?? 100, 100)));
+  if (params.page !== undefined) query.append('page', String(params.page));
+  if (params.size !== undefined) {
+    query.append('size', String(Math.min(params.size, 100)));
+  }
 
+  const queryString = query.toString();
   const result = await receiptRequest<
-    GetReceiptsResponse | ApiResponse<GetReceiptsResponse>
-  >(`/receipts?${query.toString()}`);
-  const payload = unwrapApiResponse<GetReceiptsResponse>(result);
+    GetReceiptsResponse | ApiReceiptItem[] | ApiResponse<GetReceiptsResponse | ApiReceiptItem[]>
+  >(`/receipts${queryString ? `?${queryString}` : ''}`);
+  const payload = unwrapApiResponse<GetReceiptsResponse | ApiReceiptItem[]>(result);
+  const items = Array.isArray(payload)
+    ? payload
+    : payload.receipts ?? payload.items ?? payload.content ?? [];
 
-  return payload.receipts.map(toReceipt);
+  return items.map(toReceipt);
 }
 
 export async function getReceiptDetail(receiptId: string): Promise<Receipt> {

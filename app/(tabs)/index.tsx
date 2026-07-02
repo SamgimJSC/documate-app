@@ -3,6 +3,7 @@ import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { useReceiptStore } from '@/stores/receipt-store';
+import { calculateStorageUsedGb, formatStorageUsed } from '@/utils/storage-usage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -24,11 +25,14 @@ export default function HomeScreen() {
   const documents = useDocStore((s) => s.documents);
   const fetchDocuments = useDocStore((s) => s.fetchDocuments);
   const getTotalForMonth = useReceiptStore((s) => s.getTotalForMonth);
+  const receipts = useReceiptStore((s) => s.receipts);
+  const fetchReceipts = useReceiptStore((s) => s.fetchReceipts);
   const [activeTab, setActiveTab] = useState<HomeTab>('recent');
 
   useEffect(() => {
     fetchDocuments();
-  }, []);
+    fetchReceipts();
+  }, [fetchDocuments, fetchReceipts]);
 
   const today = new Date().toISOString().split('T')[0];
   const currentMonth = today.slice(0, 7);
@@ -42,8 +46,13 @@ export default function HomeScreen() {
     ? [...documents].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)).slice(0, 5)
     : documents.filter((d) => d.isFavorite).slice(0, 5);
 
+  const storageUsed = calculateStorageUsedGb(
+    documents,
+    receipts,
+    user?.storageUsed ?? 0,
+  );
   const storagePercent = user
-    ? Math.round((user.storageUsed / user.storageLimit) * 100)
+    ? Math.round((storageUsed / user.storageLimit) * 100)
     : 0;
 
   const getDaysUntil = (dateStr?: string) => {
@@ -88,7 +97,7 @@ export default function HomeScreen() {
             <View style={[styles.storageBarFill, { width: `${storagePercent}%` as any }]} />
           </View>
           <Text style={styles.storageText}>
-            {user?.storageUsed.toFixed(1)}GB / {user?.storageLimit}GB 사용 중
+            {formatStorageUsed(storageUsed)} / {user?.storageLimit}GB 사용 중
           </Text>
         </View>
 

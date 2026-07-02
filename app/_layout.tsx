@@ -110,6 +110,7 @@ function AuthGuard() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   // Android 알림 채널 생성 + 권한 요청
   useEffect(() => {
@@ -118,6 +119,8 @@ export default function RootLayout() {
 
   // FCM 토큰 발급 및 서버 등록
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     const initFcmToken = async () => {
       try {
         const fcmToken = await getFcmToken();
@@ -133,7 +136,7 @@ export default function RootLayout() {
       }
     };
     initFcmToken();
-  }, []);
+  }, [isAuthenticated]);
 
   // 포그라운드 FCM 수신 → 로컬 알림으로 표시
   useEffect(() => {

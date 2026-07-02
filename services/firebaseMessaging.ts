@@ -22,12 +22,10 @@
 //  4. eas build --profile development --platform android 빌드 & 설치
 // ════════════════════════════════════════════════════════════════════════════
 
+import axiosInstance from "@/utils/axios.util";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
-
 
 // ── Section 1: expo-notifications 기반 (현재 활성) ───────────────────────────
 //
@@ -212,28 +210,15 @@ export async function getInitialNotificationData(): Promise<Record<string, strin
 // Section 1(Expo Push Token)과 Section 2(FCM Token) 모두 이 함수로 서버에 등록합니다.
 // TODO [배포 전]: 인증 방식 확정 후 credentials 방식 통일 (document.ts 참고)
 export async function registerFcmTokenToServer(fcmToken: string) {
-  if (!BASE_URL) {
-    console.log("EXPO_PUBLIC_API_URL이 설정되어 있지 않아 서버 등록을 생략합니다.");
-    return;
-  }
-
-  const response = await fetch(`${BASE_URL}/notifications/push-token`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      token: fcmToken,
-      platform: Platform.OS,
-      // Section 1: provider를 "EXPO"로 변경하도록 백엔드와 협의 필요
-      // Section 2: "FCM" 사용
-      provider: "FCM",
-    }),
+  const platform = Platform.select<"IOS" | "ANDROID" | "WEB">({
+    ios: "IOS",
+    android: "ANDROID",
+    web: "WEB",
+    default: "WEB",
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`FCM 토큰 등록 실패: ${response.status} ${errorText}`);
-  }
-
-  return response.json();
+  return axiosInstance.post("/notifications/device-tokens", {
+    token: fcmToken,
+    platform,
+  });
 }

@@ -1,9 +1,12 @@
 import { PinPad } from "@/components/common/pin-pad";
 import { Colors, Radius, Spacing } from "@/constants/theme";
-import { getCurrentUser, loginWithPin } from "@/services/auth";
+import {
+  getCurrentUser,
+  loginWithPin,
+} from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { Ionicons } from "@expo/vector-icons";
-import axios from "axios";
+import { isAxiosError } from "axios";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -28,7 +31,10 @@ function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
 
 export default function PinVerifyScreen() {
   const router = useRouter();
-  const { isBiometricEnabled, logout } = useAuthStore();
+  const {
+    isBiometricEnabled,
+    forgetSavedLogin,
+  } = useAuthStore();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [attempts, setAttempts] = useState(0);
@@ -44,6 +50,7 @@ export default function PinVerifyScreen() {
     setLoading(true);
     try {
       await loginWithPin(value);
+      useAuthStore.setState({ pin: value, isPinSet: true });
 
       const user = await getCurrentUser();
       completeLogin(user);
@@ -53,7 +60,7 @@ export default function PinVerifyScreen() {
       setAttempts(nextAttempts);
       setPin("");
 
-      const errorCode = axios.isAxiosError(err)
+      const errorCode = isAxiosError(err)
         ? err.response?.data?.errorCode
         : undefined;
 
@@ -87,7 +94,7 @@ export default function PinVerifyScreen() {
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "DocuMate에 로그인합니다",
         cancelLabel: "취소",
-        disableDeviceFallback: false,
+        disableDeviceFallback: true,
       });
       if (!result.success) return;
 
@@ -102,7 +109,7 @@ export default function PinVerifyScreen() {
   };
 
   const handleOtherAccount = () => {
-    logout();
+    forgetSavedLogin();
     router.replace("/(auth)/login");
   };
 

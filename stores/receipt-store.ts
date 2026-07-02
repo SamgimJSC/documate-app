@@ -31,7 +31,7 @@ export const useReceiptStore = create<ReceiptState>()((set, get) => ({
   fetchReceipts: async (month?: string) => {
     set({ isLoading: true });
     try {
-      const data = await getReceipts({ month, sort: 'latest', size: 100 });
+      const data = await getReceipts(month ? { month } : {});
       set({ receipts: data });
     } catch (e) {
       console.error('영수증 목록 조회 실패:', e);

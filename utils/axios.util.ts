@@ -1,6 +1,68 @@
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 
+type TokenContainer = Record<string, unknown>;
+
+function findTokenValue(
+  value: unknown,
+  names: readonly string[],
+  depth = 0,
+): unknown {
+  if (value === null || typeof value !== "object" || depth > 5) return undefined;
+
+  const record = value as TokenContainer;
+  for (const name of names) {
+    if (typeof record[name] === "string" && record[name]) return record[name];
+  }
+
+  for (const child of Object.values(record)) {
+    const found = findTokenValue(child, names, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+export function describeResponseShape(value: unknown): string {
+  if (value === null || typeof value !== "object") return typeof value;
+  const root = value as TokenContainer;
+  const rootKeys = Object.keys(root);
+  const data = root.data;
+  const dataKeys =
+    data !== null && typeof data === "object"
+      ? Object.keys(data as TokenContainer)
+      : [];
+  return `root=[${rootKeys.join(", ")}], data=[${dataKeys.join(", ")}]`;
+}
+
+export async function persistTokensFromResponse(data: unknown): Promise<{
+  hasAccessToken: boolean;
+  hasRefreshToken: boolean;
+}> {
+  const accessToken = findTokenValue(data, [
+    "access_token",
+    "accessToken",
+    "token",
+  ]);
+  const refreshToken = findTokenValue(data, [
+    "refresh_token",
+    "refreshToken",
+  ]);
+
+  await Promise.all([
+    accessToken
+      ? SecureStore.setItemAsync("accessToken", String(accessToken))
+      : Promise.resolve(),
+    refreshToken
+      ? SecureStore.setItemAsync("refreshToken", String(refreshToken))
+      : Promise.resolve(),
+  ]);
+
+  return {
+    hasAccessToken: Boolean(accessToken),
+    hasRefreshToken: Boolean(refreshToken),
+  };
+}
+
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "";
 
 const axiosInstance = axios.create({
@@ -32,11 +94,7 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   async (response) => {
     try {
-      // 서버가 응답 body에 토큰 넣어주는 경우
-      const token = response.data?.data?.accessToken;
-      if (token) {
-        await SecureStore.setItemAsync("accessToken", token);
-      }
+      await persistTokensFromResponse(response.data);
     } catch (e) {
       // 저장 실패해도 무시
     }

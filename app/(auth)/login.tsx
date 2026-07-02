@@ -1,11 +1,15 @@
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Colors, Radius, Spacing } from "@/constants/theme";
-import { getCurrentUser, rememberPinLoginEmail } from "@/services/auth";
+import {
+  BIOMETRIC_ENABLED_KEY,
+  getCurrentUser,
+  rememberPinLoginEmail,
+} from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
-import axios from "axios";
+import { isAxiosError } from "axios";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import { useRouter } from "expo-router";
@@ -25,17 +29,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function LoginScreen() {
   const router = useRouter();
   const isBiometricEnabled = useAuthStore((s) => s.isBiometricEnabled);
-  const enableBiometric = useAuthStore((s) => s.enableBiometric);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    SecureStore.getItemAsync("biometricEnabled").then((enabled) => {
-      if (enabled === "true") enableBiometric();
+    SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY).then((enabled) => {
+      useAuthStore.setState({ isBiometricEnabled: enabled === "true" });
     });
-  }, [enableBiometric]);
+  }, []);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -46,31 +49,32 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      await axiosInstance.post("/auth/login", { email, password });
+      await axiosInstance.post("/auth/login", {
+        email,
+        password,
+        stayLoggedIn: true,
+      });
       await rememberPinLoginEmail(email);
 
-      const userRes = await axiosInstance.get("/users/me");
-      const userData = userRes.data;
+      const userData = await getCurrentUser();
 
       useAuthStore.setState({
         isAuthenticated: true,
         isPinVerified: true,
         token: "logged-in",
         user: {
-          id: userData.userId,
+          id: userData.id,
           email: userData.email,
           nickname: userData.nickname,
-          plan: userData.plan === "PRO" ? "pro" : "free",
-          storageUsed: Number(userData.storageUsedBytes) / 1024 / 1024 / 1024,
-          storageLimit: userData.storageQuotaBytes
-            ? Number(userData.storageQuotaBytes) / 1024 / 1024 / 1024
-            : 5,
+          plan: userData.plan,
+          storageUsed: userData.storageUsed,
+          storageLimit: userData.storageLimit,
         },
       });
 
       router.replace("/(tabs)");
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
+      if (isAxiosError(err)) {
         const serverError = err.response?.data;
         if (serverError?.errorCode === "USER_NOT_FOUND") {
           setError("존재하지 않는 이메일입니다.");
@@ -91,15 +95,24 @@ export default function LoginScreen() {
   };
 
   const handleBiometricLogin = async () => {
-    if (!isBiometricEnabled) {
+    const savedBiometricEnabled =
+      (await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY)) === "true";
+    if (!isBiometricEnabled && !savedBiometricEnabled) {
       setError("먼저 이메일로 로그인한 뒤 생체인식을 설정해주세요.");
       return;
     }
 
+    if (savedBiometricEnabled && !isBiometricEnabled) {
+      useAuthStore.setState({ isBiometricEnabled: true });
+    }
+
+    setError("");
+    setLoading(true);
     try {
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "DocuMate에 접근합니다",
         cancelLabel: "취소",
+        disableDeviceFallback: true,
       });
 
       if (result.success) {
@@ -115,11 +128,13 @@ export default function LoginScreen() {
         router.replace("/(tabs)");
       }
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
+      if (isAxiosError(err) && err.response?.status === 401) {
         setError("로그인 정보가 만료되었습니다. 이메일로 다시 로그인해주세요.");
       } else {
         setError("생체인증에 실패했습니다. 다시 시도해주세요.");
       }
+    } finally {
+      setLoading(false);
     }
   };
 

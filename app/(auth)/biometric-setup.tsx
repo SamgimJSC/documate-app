@@ -3,10 +3,9 @@ import { View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LocalAuthentication from 'expo-local-authentication';
-import * as SecureStore from 'expo-secure-store';
 import { Button } from '@/components/common/button';
 import { Colors, Spacing, Radius } from '@/constants/theme';
-import { setBiometricLoginEnabled } from '@/services/auth';
+import { getAvailableBiometricType } from '@/services/auth';
 import { useAuthStore } from '@/stores/auth-store';
 
 export default function BiometricSetupScreen() {
@@ -17,18 +16,14 @@ export default function BiometricSetupScreen() {
   const handleEnable = async () => {
     setLoading(true);
     try {
-      const compatible = await LocalAuthentication.hasHardwareAsync();
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      if (compatible && enrolled) {
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: '생체인증을 등록합니다',
-          cancelLabel: '취소',
-        });
-        if (result.success) {
-          await setBiometricLoginEnabled(true);
-          await SecureStore.setItemAsync('biometricEnabled', 'true');
-          enableBiometric();
-        }
+      const biometricType = await getAvailableBiometricType();
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: '생체인증을 등록합니다',
+        cancelLabel: '취소',
+        disableDeviceFallback: true,
+      });
+      if (result.success) {
+        await enableBiometric(biometricType);
       }
     } catch {
       // ignore
