@@ -5,7 +5,9 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   AiStatus,
   AiStatusResponse,
+  getTempDocumentList,
   getTempDocumentStatus,
+  requestAiAnalysis,
 } from '@/services/upload';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
@@ -124,21 +126,29 @@ export default function ProcessingCenterScreen() {
       // guard: setItems → items 변경 → 이펙트 재실행 → 무한루프 방지
       if (!DEMO_MODE && !completionFetchedRef.current) {
         completionFetchedRef.current = true;
-        fetchDocuments().then(() => {
-          const newDocs = useDocStore.getState().documents.filter(
-            (d) => !existingDocIdsRef.current.has(d.id)
-          );
-          if (newDocs.length === 0) return;
-          const doneItems = items.filter((it) => it.status === 'DONE');
-          setItems((prev) =>
-            prev.map((it) => {
-              if (it.status !== 'DONE' || it.resultDocumentId) return it;
-              const idx = doneItems.findIndex((d) => d.tempDocumentId === it.tempDocumentId);
-              const doc = newDocs[idx] ?? newDocs[0];
-              return { ...it, resultDocumentId: doc?.id ?? null };
-            })
-          );
-        });
+        // temp doc의 createdAt을 가져와서 가장 가까운 새 문서와 매칭
+        getTempDocumentList().then((tempList) =>
+          fetchDocuments().then(() => {
+            const newDocs = useDocStore.getState().documents.filter(
+              (d) => !existingDocIdsRef.current.has(d.id)
+            );
+            if (newDocs.length === 0) return;
+            setItems((prev) =>
+              prev.map((it) => {
+                if (it.status !== 'DONE' || it.resultDocumentId) return it;
+                const tempInfo = tempList.find((t) => t.tempDocumentId === it.tempDocumentId);
+                if (!tempInfo) return { ...it, resultDocumentId: newDocs[0]?.id ?? null };
+                const tempTime = new Date(tempInfo.createdAt).getTime();
+                const closest = newDocs.reduce((best, doc) => {
+                  const dt = Math.abs(new Date(doc.uploadedAt).getTime() - tempTime);
+                  const db = Math.abs(new Date(best.uploadedAt).getTime() - tempTime);
+                  return dt < db ? doc : best;
+                });
+                return { ...it, resultDocumentId: closest?.id ?? null };
+              })
+            );
+          })
+        );
       }
       return;
     }
@@ -166,6 +176,31 @@ export default function ProcessingCenterScreen() {
     if (item.status !== 'DONE') return;
     if (item.resultDocumentId) {
       router.push(`/document/${item.resultDocumentId}` as any);
+    }
+  };
+
+  const handleRetry = async (tempDocumentId: string) => {
+    // FAILED → PROCESSING으로 즉시 낙관적 업데이트
+    setItems((prev) =>
+      prev.map((it) =>
+        it.tempDocumentId === tempDocumentId ? { ...it, status: 'PROCESSING' as AiStatus } : it
+      )
+    );
+    try {
+      const list = await getTempDocumentList();
+      const found = list.find((it) => it.tempDocumentId === tempDocumentId);
+      if (!found || found.files.length === 0) throw new Error('파일 정보를 찾을 수 없습니다.');
+      await requestAiAnalysis(
+        tempDocumentId,
+        found.files.map((f) => ({ id: f.id, pageNo: f.pageNo })),
+      );
+    } catch {
+      // 실패 시 원복
+      setItems((prev) =>
+        prev.map((it) =>
+          it.tempDocumentId === tempDocumentId ? { ...it, status: 'FAILED' as AiStatus } : it
+        )
+      );
     }
   };
 
@@ -256,7 +291,18 @@ export default function ProcessingCenterScreen() {
                     <Text style={styles.colVal}>{item.uploadedAtTime}</Text>
                   </View>
                   <View style={{ width: 72, alignItems: 'center' }}>
-                    <StatusBadge status={item.status} />
+                    {item.status === 'FAILED' ? (
+                      <TouchableOpacity
+                        onPress={() => handleRetry(item.tempDocumentId)}
+                        style={styles.retryBtn}
+                        hitSlop={6}
+                      >
+                        <Ionicons name="refresh-outline" size={12} color={Colors.error} />
+                        <Text style={styles.retryBtnText}>재시도</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <StatusBadge status={item.status} />
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -393,4 +439,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: Spacing.sm,
   },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.errorLight,
+    borderRadius: Radius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  retryBtnText: { fontSize: 11, fontWeight: '600', color: Colors.error },
 });

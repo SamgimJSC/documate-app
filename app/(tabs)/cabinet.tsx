@@ -26,6 +26,7 @@ const FALLBACK_CATEGORIES: (DocumentCategory | "전체")[] = [
   "보증서",
   "처방전",
   "보험서류",
+  "영수증",
   "기타",
 ];
 

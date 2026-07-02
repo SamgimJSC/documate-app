@@ -18,6 +18,7 @@ const CATEGORY_NAME_NORM: Record<string, DocumentCategory> = {
   '처방전': '처방전',
   '병원/약국': '처방전',
   '보험서류': '보험서류',
+  '영수증': '영수증',
   '기타': '기타',
 };
 
@@ -53,12 +54,16 @@ const EXTRACTED_KEY_MAP: Record<string, string> = {
   '진료일': 'visitDate', '방문일': 'visitDate', '진료날짜': 'visitDate', 'visit_date': 'visitDate',
   // amount
   '금액': 'amount', '비용': 'amount', '보험금': 'amount', '총액': 'amount', '결제금액': 'amount',
+  '합계': 'amount', '결제액': 'amount', '지불금액': 'amount',
   // medication
   '약품명': 'medication', '처방약': 'medication', '약품': 'medication', '약': 'medication',
   // insurer
   '보험사': 'insurer', '보험회사': 'insurer',
   // date
-  '날짜': 'date', '일자': 'date',
+  '날짜': 'date', '일자': 'date', '거래일': 'date', '주문일': 'date', '발행일': 'date',
+  // parties (계약자/발행처/상호 등)
+  '발행처': 'parties', '상호': 'parties', '업체명': 'parties', '가게명': 'parties',
+  '매장명': 'parties', '판매자': 'parties', '공급자': 'parties',
   // notes
   '메모': 'notes', '비고': 'notes', '기타사항': 'notes',
 };

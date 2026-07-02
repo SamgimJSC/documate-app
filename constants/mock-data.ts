@@ -1,4 +1,4 @@
-export type DocumentCategory = '계약서' | '보증서' | '처방전' | '보험서류' | '기타';
+export type DocumentCategory = '계약서' | '보증서' | '처방전' | '보험서류' | '영수증' | '기타';
 export type DocumentStatus = 'active' | 'expiring_soon' | 'expired';
 
 export interface Document {

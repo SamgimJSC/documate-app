@@ -28,7 +28,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const CATEGORIES: DocumentCategory[] = ['계약서', '보증서', '처방전', '보험서류', '기타'];
+const CATEGORIES: DocumentCategory[] = ['계약서', '보증서', '처방전', '보험서류', '영수증', '기타'];
+
+const EDIT_FIELD_LABELS: Record<string, string> = {
+  contractDate: '계약일', expiryDate: '만료일', renewalDate: '갱신일', parties: '계약자',
+  productName: '제품명', purchaseDate: '구매일', warrantyPeriod: '보증기간', repairDate: '수리일',
+  hospitalName: '병원명', visitDate: '진료일', amount: '금액', medication: '약품명',
+  insurer: '보험사', date: '날짜', notes: '메모',
+};
 
 const NOTI_OPTIONS: { days: number; label: string }[] = [
   { days: 30, label: '만료 1개월 전' },
@@ -435,41 +442,57 @@ export default function DocumentEditScreen() {
           {/* AI 추출 정보 (카테고리별 동적 필드) */}
           <Text style={styles.sectionLabel}>AI 추출 정보</Text>
           <View style={styles.card}>
-            {(CATEGORY_FIELDS[category] ?? []).map((field, idx) => {
-              const isLast = idx === (CATEGORY_FIELDS[category] ?? []).length - 1;
-              return (
-                <View
-                  key={field.key}
-                  style={[
-                    styles.fieldRow,
-                    isLast && styles.fieldRowLast,
-                    field.multiline && styles.fieldRowTop,
-                  ]}
-                >
-                  <Text style={styles.fieldKey}>{field.label}</Text>
-                  <TextInput
-                    style={[
-                      styles.fieldInput,
-                      field.multiline && styles.fieldInputNotes,
-                      field.multiline && { height: Math.max(notesHeight, 64) },
-                    ]}
-                    value={extractedFields[field.key] ?? ''}
-                    onChangeText={(val) =>
-                      setExtractedFields((prev) => ({ ...prev, [field.key]: val }))
-                    }
-                    onContentSizeChange={
-                      field.multiline
-                        ? (e) => setNotesHeight(Math.min(e.nativeEvent.contentSize.height, 200))
-                        : undefined
-                    }
-                    placeholder={field.placeholder}
-                    placeholderTextColor={Colors.gray400}
-                    multiline={field.multiline}
-                    textAlignVertical={field.multiline ? 'top' : 'center'}
-                  />
-                </View>
+            {(() => {
+              const standardFields = CATEGORY_FIELDS[category] ?? [];
+              const standardKeys = new Set(standardFields.map((f) => f.key));
+              const extraKeys = Object.keys(extractedFields).filter(
+                (k) => !standardKeys.has(k) && extractedFields[k]
               );
-            })}
+              const allFields = [
+                ...standardFields,
+                ...extraKeys.map((k) => ({
+                  key: k,
+                  label: EDIT_FIELD_LABELS[k] ?? k,
+                  placeholder: '',
+                  multiline: extractedFields[k].length > 80,
+                })),
+              ];
+              return allFields.map((field, idx) => {
+                const isLast = idx === allFields.length - 1;
+                return (
+                  <View
+                    key={field.key}
+                    style={[
+                      styles.fieldRow,
+                      isLast && styles.fieldRowLast,
+                      field.multiline && styles.fieldRowTop,
+                    ]}
+                  >
+                    <Text style={styles.fieldKey}>{field.label}</Text>
+                    <TextInput
+                      style={[
+                        styles.fieldInput,
+                        field.multiline && styles.fieldInputNotes,
+                        field.multiline && { height: Math.max(notesHeight, 64) },
+                      ]}
+                      value={extractedFields[field.key] ?? ''}
+                      onChangeText={(val) =>
+                        setExtractedFields((prev) => ({ ...prev, [field.key]: val }))
+                      }
+                      onContentSizeChange={
+                        field.multiline
+                          ? (e) => setNotesHeight(Math.min(e.nativeEvent.contentSize.height, 200))
+                          : undefined
+                      }
+                      placeholder={field.placeholder}
+                      placeholderTextColor={Colors.gray400}
+                      multiline={field.multiline}
+                      textAlignVertical={field.multiline ? 'top' : 'center'}
+                    />
+                  </View>
+                );
+              });
+            })()}
           </View>
 
           {/* 알림 설정 */}

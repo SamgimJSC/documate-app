@@ -1,6 +1,5 @@
-import { CATEGORY_FIELDS } from '@/constants/document-fields';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { downloadAsPdf } from '@/services/download';
+import { downloadDocumentPdf } from '@/services/download';
 import {
   DocumentAlert,
   deleteAlert,
@@ -28,6 +27,45 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+function CollapsibleText({ label, value }: { label: string; value: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const PREVIEW = 120;
+  const needsCollapse = value.length > PREVIEW;
+  return (
+    <View style={{ gap: 4 }}>
+      <Text style={{ fontSize: 12, color: Colors.gray500 }}>{label}</Text>
+      <Text style={{ fontSize: 12, color: Colors.gray700, lineHeight: 18 }}>
+        {needsCollapse && !expanded ? value.slice(0, PREVIEW) + '…' : value}
+      </Text>
+      {needsCollapse && (
+        <TouchableOpacity onPress={() => setExpanded(!expanded)} hitSlop={8}>
+          <Text style={{ fontSize: 12, color: Colors.primary, fontWeight: '600', marginTop: 2 }}>
+            {expanded ? '접기' : '더 보기'}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  contractDate: '계약일',
+  expiryDate: '만료일',
+  renewalDate: '갱신일',
+  parties: '계약자',
+  productName: '제품명',
+  purchaseDate: '구매일',
+  warrantyPeriod: '보증기간',
+  repairDate: '수리일',
+  hospitalName: '병원명',
+  visitDate: '진료일',
+  amount: '금액',
+  medication: '약품명',
+  insurer: '보험사',
+  date: '날짜',
+  notes: '메모',
+};
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes}B`;
@@ -210,13 +248,9 @@ export default function DocumentDetailScreen() {
           <TouchableOpacity
             disabled={downloading}
             onPress={async () => {
-              if (!doc.imageUri) {
-                showToast('저장된 파일 URL이 없습니다.', 'error');
-                return;
-              }
               setDownloading(true);
               try {
-                const ok = await downloadAsPdf(doc.imageUri, doc.title, doc.fileType ?? 'PDF');
+                const ok = await downloadDocumentPdf(doc.id, doc.title);
                 if (ok) showToast('PDF가 저장되었습니다.', 'success');
               } catch (e) {
                 showToast(getErrorMessage(e), 'error');
@@ -302,16 +336,29 @@ export default function DocumentDetailScreen() {
               <Text style={styles.metaEditBtn}>수정</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.infoGrid}>
-            {(CATEGORY_FIELDS[doc.category] ?? []).map((field) => (
-              <View key={field.key} style={styles.infoRow}>
-                <Text style={styles.infoLabel}>{field.label}</Text>
-                <Text style={[styles.infoValue, !doc.extractedData?.[field.key] && styles.infoValueEmpty]}>
-                  {doc.extractedData?.[field.key] || '-'}
-                </Text>
-              </View>
-            ))}
-          </View>
+          {(() => {
+            const entries = Object.entries(doc.extractedData ?? {}).filter(([, v]) => v);
+            if (entries.length === 0) {
+              return <Text style={styles.infoValueEmpty}>추출된 정보가 없습니다</Text>;
+            }
+            const shortEntries = entries.filter(([, v]) => String(v).length < 150);
+            const longEntries  = entries.filter(([, v]) => String(v).length >= 150);
+            return (
+              <>
+                <View style={styles.infoGrid}>
+                  {shortEntries.map(([k, v]) => (
+                    <View key={k} style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>{FIELD_LABELS[k] ?? k}</Text>
+                      <Text style={styles.infoValue}>{String(v)}</Text>
+                    </View>
+                  ))}
+                </View>
+                {longEntries.map(([k, v]) => (
+                  <CollapsibleText key={k} label={FIELD_LABELS[k] ?? k} value={String(v)} />
+                ))}
+              </>
+            );
+          })()}
         </View>
 
         {/* 알림 설정 */}
@@ -523,6 +570,8 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 13, color: Colors.gray500, width: 60 },
   infoValue: { flex: 1, fontSize: 13, color: Colors.gray800, fontWeight: '500' },
   infoValueEmpty: { color: Colors.gray300, fontWeight: '400' },
+  longFieldBlock: { gap: 6 },
+  longFieldText: { fontSize: 12, color: Colors.gray700, lineHeight: 18 },
   notifList: { gap: Spacing.sm },
   notifItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   notifInfo: { flex: 1 },
