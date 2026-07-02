@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -46,7 +47,7 @@ export default function BiometricSetupScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.iconWrap}>
-          <Text style={styles.icon}>🧬</Text>
+          <Ionicons name="finger-print-outline" size={48} color={Colors.primary} />
         </View>
         <Text style={styles.title}>생체인증 설정</Text>
         <Text style={styles.desc}>

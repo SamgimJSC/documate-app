@@ -1,5 +1,5 @@
 // ─── upload-progress.tsx의 DEMO_MODE와 맞춰서 설정 ───────────────────────
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
@@ -29,6 +29,7 @@ interface ProcessingItem {
   tempDocumentId: string;
   status: AiStatus;
   resultId?: string | null;
+  resultDocumentId?: string | null; // OCR 완료 후 생성된 실제 문서 ID
   documentType?: string | null;
   uploadedAtDate: string;
   uploadedAtTime: string;
@@ -62,6 +63,10 @@ export default function ProcessingCenterScreen() {
   const router = useRouter();
   const { ids } = useLocalSearchParams<{ ids: string }>();
   const { fetchDocuments } = useDocStore();
+  // 화면 진입 시점의 문서 ID 스냅샷 → DONE 후 새 문서 식별에 사용
+  const existingDocIdsRef = useRef<Set<string>>(
+    new Set(useDocStore.getState().documents.map((d) => d.id))
+  );
 
   const tempIds: string[] = (() => {
     try { return ids ? JSON.parse(ids) : []; } catch { return []; }
@@ -80,6 +85,8 @@ export default function ProcessingCenterScreen() {
   const [tab, setTab] = useState<TabKey>('all');
   const [refreshing, setRefreshing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 완료 후 문서 조회를 딱 한 번만 실행하는 가드
+  const completionFetchedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -114,9 +121,29 @@ export default function ProcessingCenterScreen() {
     );
     if (!hasPending) {
       if (pollRef.current) clearInterval(pollRef.current);
-      fetchDocuments();
+      // guard: setItems → items 변경 → 이펙트 재실행 → 무한루프 방지
+      if (!DEMO_MODE && !completionFetchedRef.current) {
+        completionFetchedRef.current = true;
+        fetchDocuments().then(() => {
+          const newDocs = useDocStore.getState().documents.filter(
+            (d) => !existingDocIdsRef.current.has(d.id)
+          );
+          if (newDocs.length === 0) return;
+          const doneItems = items.filter((it) => it.status === 'DONE');
+          setItems((prev) =>
+            prev.map((it) => {
+              if (it.status !== 'DONE' || it.resultDocumentId) return it;
+              const idx = doneItems.findIndex((d) => d.tempDocumentId === it.tempDocumentId);
+              const doc = newDocs[idx] ?? newDocs[0];
+              return { ...it, resultDocumentId: doc?.id ?? null };
+            })
+          );
+        });
+      }
       return;
     }
+    // 대기 항목이 다시 생기면 가드 리셋
+    completionFetchedRef.current = false;
     pollRef.current = setInterval(() => refresh(), 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [items]);
@@ -136,11 +163,10 @@ export default function ProcessingCenterScreen() {
   ];
 
   const handleItemPress = (item: ProcessingItem) => {
-    if (item.status !== 'DONE' || !item.resultId) return;
-    const path = item.documentType === 'RECEIPT'
-      ? `/receipt-detail/${item.resultId}`
-      : `/document/${item.resultId}`;
-    router.push(path as any);
+    if (item.status !== 'DONE') return;
+    if (item.resultDocumentId) {
+      router.push(`/document/${item.resultDocumentId}` as any);
+    }
   };
 
   return (
@@ -208,7 +234,7 @@ export default function ProcessingCenterScreen() {
             </View>
           ) : (
             filtered.map((item) => {
-              const isNavigable = item.status === 'DONE' && !!item.resultId;
+              const isNavigable = item.status === 'DONE' && !!item.resultDocumentId;
               return (
                 <TouchableOpacity
                   key={item.tempDocumentId}

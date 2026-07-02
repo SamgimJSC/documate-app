@@ -70,6 +70,14 @@ const FILE_TYPE_LABELS: Record<string, string> = {
 export default function DocumentEditScreen() {
   const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
   const router = useRouter();
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/cabinet' as any);
+    }
+  };
   const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
@@ -113,7 +121,7 @@ export default function DocumentEditScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <Text style={styles.notFoundText}>문서를 찾을 수 없습니다</Text>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => goBack()}>
             <Text style={styles.backLink}>돌아가기</Text>
           </TouchableOpacity>
         </View>
@@ -157,7 +165,7 @@ export default function DocumentEditScreen() {
     if (isManual && !title.trim()) {
       removeDocument(doc.id);
     }
-    router.back();
+    goBack();
   };
 
   const commitSave = async () => {

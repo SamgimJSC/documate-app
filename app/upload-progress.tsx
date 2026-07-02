@@ -1,15 +1,16 @@
 // ─── DEMO_MODE: true = API 없이 UI 흐름 확인, false = 실제 API 사용 ───────
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   AiStatusResponse,
-  TempFileType,
-  createTempUpload,
   pollUntilDone,
   requestAiAnalysis,
-  uploadToS3,
+  startUpload,
+  uploadTempFile,
 } from '@/services/upload';
+
+type TempFileType = 'JPG' | 'PNG';
 
 // ─── 데모용 mock 함수들 ────────────────────────────────────────────────────
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -50,6 +51,7 @@ interface FileItem {
   fileType: TempFileType;
   uploadStatus: UploadStatus;
   tempDocumentId?: string;
+  uploadedFiles?: Array<{ id: string; pageNo: number }>;
   analysisStatus: AnalysisStatus;
   result?: AiStatusResponse;
 }
@@ -87,9 +89,37 @@ export default function UploadProgressScreen() {
   const [phase, setPhase] = useState<Phase>('uploading');
   const startedRef = useRef(false);
   const finishedRef = useRef(false);
+  // 화면 마운트 시점(업로드 전) 문서 ID 스냅샷 → OCR 완료 후 새 문서 특정에 사용
+  // startAnalysis가 아닌 마운트 시점에 찍어야 업로드 중 생성된 문서까지 잡을 수 있음
+  const existingDocIdsRef = useRef<Set<string>>(
+    new Set(useDocStore.getState().documents.map((d) => d.id))
+  );
 
   const updateItem = (index: number, patch: Partial<FileItem>) =>
     setItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+
+  // ─── 업로드 실패 재시도 ───────────────────────────────────────────────────
+  const retryUpload = async (uri: string, index: number) => {
+    updateItem(index, { uploadStatus: 'uploading', sizeBytes: undefined, tempDocumentId: undefined, uploadedFiles: undefined });
+    try {
+      const ft: TempFileType = uri.toLowerCase().endsWith('.png') ? 'PNG' : 'JPG';
+      const mime = ft === 'PNG' ? 'image/png' : 'image/jpeg';
+      const info = await FileSystem.getInfoAsync(uri);
+      const sizeBytes = (info.exists && 'size' in info) ? (info as any).size : undefined;
+      updateItem(index, { sizeBytes });
+      const { tempDocumentId } = await startUpload();
+      const fileName = `img_${Date.now()}_${index}.${ft.toLowerCase()}`;
+      const uploadResult = await uploadTempFile(tempDocumentId, uri, mime, fileName);
+      updateItem(index, {
+        uploadStatus: 'uploaded',
+        tempDocumentId,
+        uploadedFiles: uploadResult.files.map((f) => ({ id: f.id, pageNo: f.pageNo })),
+      });
+    } catch (e) {
+      console.error(`[upload] 파일 ${index} 재시도 실패:`, e);
+      updateItem(index, { uploadStatus: 'error' });
+    }
+  };
 
   // ─── 1. S3 업로드 (마운트 즉시, 병렬) ───────────────────────────────────
   useEffect(() => {
@@ -109,11 +139,17 @@ export default function UploadProgressScreen() {
               const info = await FileSystem.getInfoAsync(uri);
               const sizeBytes = (info.exists && 'size' in info) ? (info as any).size : undefined;
               updateItem(i, { sizeBytes });
-              const { tempDocumentId, uploadUrl } = await createTempUpload({ fileType: ft, pageCount: 1 });
-              await uploadToS3(uri, uploadUrl, mime);
-              updateItem(i, { uploadStatus: 'uploaded', tempDocumentId });
+              const { tempDocumentId } = await startUpload();
+              const fileName = `img_${Date.now()}_${i}.${ft.toLowerCase()}`;
+              const uploadResult = await uploadTempFile(tempDocumentId, uri, mime, fileName);
+              updateItem(i, {
+                uploadStatus: 'uploaded',
+                tempDocumentId,
+                uploadedFiles: uploadResult.files.map((f) => ({ id: f.id, pageNo: f.pageNo })),
+              });
             }
-          } catch {
+          } catch (e) {
+            console.error(`[upload] 파일 ${i} 업로드 실패:`, e);
             updateItem(i, { uploadStatus: 'error' });
           }
         })
@@ -130,7 +166,9 @@ export default function UploadProgressScreen() {
     const uploaded = items.filter((it) => it.uploadStatus === 'uploaded' && it.tempDocumentId);
     if (!DEMO_MODE) {
       await Promise.allSettled(
-        uploaded.map((it) => requestAiAnalysis(it.tempDocumentId!))
+        uploaded.map((it) =>
+          requestAiAnalysis(it.tempDocumentId!, it.uploadedFiles ?? [])
+        )
       );
     }
     setItems((prev) =>
@@ -152,7 +190,7 @@ export default function UploadProgressScreen() {
       const results: AiStatusResponse[] = [];
 
       await Promise.allSettled(
-        uploaded.map(async (it, idx) => {
+        uploaded.map(async (it) => {
           const itemIdx = items.indexOf(it);
           try {
             const result = DEMO_MODE
@@ -172,20 +210,22 @@ export default function UploadProgressScreen() {
 
       if (finishedRef.current) return;
       finishedRef.current = true;
-      if (!DEMO_MODE) fetchDocuments();
 
       if (DEMO_MODE) {
         router.replace('/(tabs)/cabinet');
         return;
       }
-      const done = results.filter((r) => r.aiStatus === 'DONE' && r.resultId);
-      if (done.length === 1) {
-        const { documentType, resultId } = done[0];
-        router.replace(
-          documentType === 'RECEIPT'
-            ? (`/receipt-detail/${resultId}` as any)
-            : (`/document/${resultId}` as any)
-        );
+
+      // 새로 생성된 문서를 찾아 확인/수정 화면으로 이동
+      await fetchDocuments();
+      const newDocs = useDocStore.getState().documents.filter(
+        (d) => !existingDocIdsRef.current.has(d.id)
+      );
+      const doneCount = results.filter((r) => r.aiStatus === 'DONE').length;
+
+      if (doneCount > 0 && newDocs.length > 0) {
+        // OCR 결과(카테고리, 추출 필드)를 사용자가 확인·수정하는 화면으로
+        router.replace(`/document/edit/${newDocs[0].id}` as any);
       } else {
         router.replace('/(tabs)/cabinet');
       }
@@ -197,10 +237,13 @@ export default function UploadProgressScreen() {
   // ─── 파생 상태 ─────────────────────────────────────────────────────────
   const uploadedItems = items.filter((it) => it.uploadStatus === 'uploaded');
   const uploadingCount = items.filter((it) => it.uploadStatus === 'uploading').length;
+  const errorCount = items.filter((it) => it.uploadStatus === 'error').length;
   const allUploaded = items.every((it) => it.uploadStatus !== 'uploading');
 
   const statusBannerStyle =
     phase === 'uploading' ? 'uploading'
+    : (phase === 'ready' || phase === 'confirming') && errorCount > 0 && uploadedItems.length === 0 ? 'allError'
+    : (phase === 'ready' || phase === 'confirming') && errorCount > 0 ? 'partialError'
     : phase === 'ready' || phase === 'confirming' ? 'ready'
     : 'analyzing';
 
@@ -224,29 +267,41 @@ export default function UploadProgressScreen() {
       <View style={[
         styles.banner,
         statusBannerStyle === 'ready' && styles.bannerReady,
+        statusBannerStyle === 'partialError' && styles.bannerPartialError,
+        statusBannerStyle === 'allError' && styles.bannerAllError,
         statusBannerStyle === 'analyzing' && styles.bannerAnalyzing,
       ]}>
         <View style={[
           styles.bannerIcon,
           statusBannerStyle === 'ready' && styles.bannerIconReady,
+          statusBannerStyle === 'partialError' && styles.bannerIconWarning,
+          statusBannerStyle === 'allError' && styles.bannerIconError,
         ]}>
-          {statusBannerStyle === 'uploading' ? (
+          {statusBannerStyle === 'uploading' || statusBannerStyle === 'analyzing' ? (
             <ActivityIndicator size="small" color={Colors.primary} />
           ) : statusBannerStyle === 'ready' ? (
             <Ionicons name="checkmark" size={16} color={Colors.success} />
+          ) : statusBannerStyle === 'partialError' ? (
+            <Ionicons name="warning-outline" size={16} color={Colors.warning} />
           ) : (
-            <ActivityIndicator size="small" color={Colors.primary} />
+            <Ionicons name="close-circle-outline" size={16} color={Colors.error} />
           )}
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[
             styles.bannerTitle,
             statusBannerStyle === 'ready' && styles.bannerTitleReady,
+            statusBannerStyle === 'partialError' && styles.bannerTitleWarning,
+            statusBannerStyle === 'allError' && styles.bannerTitleError,
           ]}>
             {statusBannerStyle === 'uploading'
               ? `업로드 중... (${uploadingCount}개 남음)`
               : statusBannerStyle === 'ready'
               ? '업로드가 완료되었습니다.'
+              : statusBannerStyle === 'partialError'
+              ? `일부 업로드 실패 (${errorCount}개)`
+              : statusBannerStyle === 'allError'
+              ? '업로드에 실패했습니다.'
               : 'AI가 문서를 분석하고 있어요'}
           </Text>
           <Text style={styles.bannerSub}>
@@ -254,6 +309,10 @@ export default function UploadProgressScreen() {
               ? '잠시만 기다려 주세요.'
               : statusBannerStyle === 'ready'
               ? '업로드된 파일을 확인한 뒤 AI 분석을 시작해 주세요.'
+              : statusBannerStyle === 'partialError'
+              ? `${uploadedItems.length}개 성공 · 실패한 파일은 재시도 버튼을 눌러주세요.`
+              : statusBannerStyle === 'allError'
+              ? '각 파일의 재시도 버튼을 눌러 다시 시도해 주세요.'
               : '페이지를 벗어나도 처리 센터에서 확인할 수 있어요.'}
           </Text>
         </View>
@@ -282,9 +341,13 @@ export default function UploadProgressScreen() {
                   <Text style={[styles.statusText, { color: Colors.primary }]}>업로드 중</Text>
                 </View>
               ) : item.uploadStatus === 'error' ? (
-                <View style={[styles.statusChip, styles.statusChipError]}>
-                  <Text style={[styles.statusText, { color: Colors.error }]}>업로드 실패</Text>
-                </View>
+                <TouchableOpacity
+                  style={[styles.statusChip, styles.statusChipError]}
+                  onPress={() => retryUpload(item.uri, idx)}
+                >
+                  <Ionicons name="refresh" size={11} color={Colors.error} />
+                  <Text style={[styles.statusText, { color: Colors.error }]}>재시도</Text>
+                </TouchableOpacity>
               ) : item.analysisStatus === 'analyzing' ? (
                 <View style={[styles.statusChip, styles.statusChipAnalyzing]}>
                   <ActivityIndicator size={10} color={Colors.warning} style={{ marginRight: 4 }} />
@@ -387,7 +450,7 @@ export default function UploadProgressScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={[styles.modalIconWrap, styles.modalIconWrapSuccess]}>
-              <Ionicons name="star-four-points" size={24} color={Colors.primary} />
+              <Ionicons name="sparkles" size={24} color={Colors.primary} />
             </View>
             <Text style={styles.modalTitle}>AI 분석이 시작되었습니다.</Text>
             <Text style={styles.modalDesc}>진행 상태는 처리 센터에서 언제든지 확인할 수 있어요.</Text>
@@ -457,6 +520,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.successLight,
     borderColor: Colors.success + '44',
   },
+  bannerPartialError: {
+    backgroundColor: '#FFF8E1',
+    borderColor: Colors.warning + '55',
+  },
+  bannerAllError: {
+    backgroundColor: Colors.errorLight,
+    borderColor: Colors.error + '44',
+  },
   bannerAnalyzing: {
     backgroundColor: Colors.primaryLight,
     borderColor: Colors.primary + '33',
@@ -466,9 +537,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary + '22',
     alignItems: 'center', justifyContent: 'center',
   },
-  bannerIconReady: { backgroundColor: Colors.success + '22' },
+  bannerIconReady:   { backgroundColor: Colors.success + '22' },
+  bannerIconWarning: { backgroundColor: Colors.warning + '22' },
+  bannerIconError:   { backgroundColor: Colors.error + '22' },
   bannerTitle: { fontSize: 14, fontWeight: '700', color: Colors.primary },
-  bannerTitleReady: { color: Colors.success },
+  bannerTitleReady:   { color: Colors.success },
+  bannerTitleWarning: { color: Colors.warning },
+  bannerTitleError:   { color: Colors.error },
   bannerSub: { fontSize: 12, color: Colors.gray600, marginTop: 2 },
 
   tableHeader: {

@@ -3,7 +3,6 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import { downloadAsPdf } from '@/services/download';
 import {
   DocumentAlert,
-  cancelNotification,
   deleteAlert,
   getDocumentAlerts,
   updateAlert,
@@ -39,6 +38,14 @@ function formatFileSize(bytes: number) {
 export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/cabinet' as any);
+    }
+  };
   const [downloading, setDownloading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const { pin: storedPin, verifyPinWithServer } = useAuthStore();
@@ -50,6 +57,7 @@ export default function DocumentDetailScreen() {
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalInput, setPinModalInput] = useState('');
   const [pinModalError, setPinModalError] = useState(false);
+  const [pinModalLoading, setPinModalLoading] = useState(false);
   const [pinModalPurpose, setPinModalPurpose] = useState<'enable' | 'disable'>('enable');
 
   // 알림 탭 등으로 스토어가 비어있는 채 진입할 경우 문서 목록을 새로 가져옴
@@ -82,7 +90,7 @@ export default function DocumentDetailScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <Text style={styles.notFoundText}>문서를 찾을 수 없습니다</Text>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => goBack()}>
             <Text style={styles.backLink}>돌아가기</Text>
           </TouchableOpacity>
         </View>
@@ -98,13 +106,15 @@ export default function DocumentDetailScreen() {
       {
         text: '삭제',
         style: 'destructive',
-        onPress: async () => {
-          // 이 문서에 예약된 알림 모두 취소
-          for (const n of doc.notifications ?? []) {
-            if (n.id) await cancelNotification(n.id);
-          }
-          removeDocument(doc.id);
-          router.back();
+        onPress: () => {
+          // 1) 즉시 캐비닛으로 이동 — 여기서 먼저 이동해야
+          //    removeDocument의 낙관적 업데이트(로컬 제거)가 이 화면을
+          //    재렌더해서 "문서를 찾을 수 없습니다" 깜빡임이 생기지 않음
+          router.replace('/(tabs)/cabinet' as any);
+          // 2) 삭제 처리 (로컬 즉시 제거 → API 호출)
+          removeDocument(doc.id).catch(() => {
+            showToast('문서 삭제에 실패했습니다.', 'error');
+          });
         },
       },
     ]);
@@ -142,19 +152,19 @@ export default function DocumentDetailScreen() {
   };
 
   const handlePinModalDigit = async (digit: string) => {
-    if (pinModalInput.length >= 6) return;
+    if (pinModalInput.length >= 6 || pinModalLoading) return;
     const next = pinModalInput + digit;
     setPinModalInput(next);
     setPinModalError(false);
     if (next.length === 6) {
+      setPinModalLoading(true);
       const ok = storedPin ? next === storedPin : await verifyPinWithServer(next);
+      setPinModalLoading(false);
       if (ok) {
         toggleSecured(doc.id);
         setPinModalVisible(false);
         setPinModalInput('');
-        if (pinModalPurpose === 'enable') {
-          router.replace('/(tabs)/cabinet' as any);
-        }
+        router.replace('/(tabs)/cabinet' as any);
       } else {
         setPinModalError(true);
         setTimeout(() => { setPinModalInput(''); setPinModalError(false); }, 600);
@@ -178,7 +188,7 @@ export default function DocumentDetailScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={Colors.gray700} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{doc.title}</Text>
@@ -406,6 +416,9 @@ export default function DocumentDetailScreen() {
               ))}
             </View>
             {pinModalError && <Text style={styles.pinErrorText}>PIN이 올바르지 않습니다</Text>}
+            {pinModalLoading ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: Spacing.md }} />
+            ) : null}
             <View style={styles.pinPad}>
               {PIN_ROWS.map((row, ri) => (
                 <View key={ri} style={styles.pinRow}>

@@ -1,77 +1,110 @@
+import * as SecureStore from 'expo-secure-store';
+import axiosInstance from '@/utils/axios.util';
+
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, '');
 
-export type TempFileType = 'JPG' | 'PNG';
-export type TempDocumentType = 'DOCUMENT' | 'RECEIPT';
 export type AiStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+export type TempDocumentType = 'DOCUMENT' | 'RECEIPT';
 
-export type TempUploadResponse = {
+export interface TempFileItem {
+  id: string;
+  fileUrl: string;
+  pageNo: number;
+}
+
+export interface TempUploadResponse {
   tempDocumentId: string;
-  uploadUrl: string;
-  s3Key: string;
-};
+  files: TempFileItem[];
+}
 
+export interface TempDocumentListItem {
+  tempDocumentId: string;
+  aiStatus: AiStatus;
+  createdAt: string;
+  files: TempFileItem[];
+}
+
+// processing-center.tsx 호환성 유지
 export type AiStatusResponse = {
   tempDocumentId: string;
   aiStatus: AiStatus;
-  documentType?: TempDocumentType | null;
   resultId?: string | null;
-  errorMessage?: string | null;
+  documentType?: TempDocumentType | null;
 };
 
-async function uploadRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+// GET /upload/start → tempDocumentId 발급
+export async function startUpload(): Promise<{ tempDocumentId: string }> {
+  const res = await axiosInstance.get('/upload/start');
+  return (res as any).data;
+}
+
+// POST /upload/:tempDocumentId → 파일 1장 업로드 (multipart/form-data)
+// Content-Type 헤더를 직접 설정하지 않아야 boundary가 자동으로 붙음
+export async function uploadTempFile(
+  tempDocumentId: string,
+  fileUri: string,
+  mimeType: string,
+  fileName: string,
+): Promise<TempUploadResponse> {
   if (!BASE_URL) throw new Error('EXPO_PUBLIC_API_URL이 설정되어 있지 않습니다.');
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`업로드 API 오류: ${response.status} ${text}`);
-  }
-  const json = await response.json();
-  return (json?.data ?? json) as T;
-}
+  let token: string | null = null;
+  try { token = await SecureStore.getItemAsync('accessToken'); } catch {}
 
-// POST /uploads/temp-document → presigned URL + tempDocumentId 발급
-export async function createTempUpload(params: {
-  fileType: TempFileType;
-  pageCount: number;
-}): Promise<TempUploadResponse> {
-  return uploadRequest('/uploads/temp-document', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  });
-}
+  return new Promise<TempUploadResponse>((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', { uri: fileUri, type: mimeType, name: fileName } as any);
+    formData.append('pageNo', '1');
 
-// PUT {uploadUrl} → S3에 이미지 직접 업로드 (presigned URL은 인증 불필요)
-export async function uploadToS3(localUri: string, uploadUrl: string, mimeType: string) {
-  const imageRes = await fetch(localUri);
-  const blob = await imageRes.blob();
-  const res = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimeType },
-    body: blob,
-  });
-  if (!res.ok) throw new Error(`S3 업로드 실패: ${res.status}`);
-}
-
-// POST /uploads/request-ai → Redis 큐에 분석 요청 push
-export async function requestAiAnalysis(tempDocumentId: string): Promise<void> {
-  await uploadRequest('/uploads/request-ai', {
-    method: 'POST',
-    body: JSON.stringify({ tempDocumentId }),
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE_URL}/upload/${tempDocumentId}`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    // Content-Type 미설정 → React Native가 multipart boundary 자동 추가
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const json = JSON.parse(xhr.responseText);
+          resolve(json?.data ?? json);
+        } catch {
+          reject(new Error('응답 파싱 실패'));
+        }
+      } else {
+        reject(new Error(`업로드 실패: ${xhr.status} ${xhr.responseText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('업로드 네트워크 오류'));
+    xhr.ontimeout = () => reject(new Error('업로드 시간 초과'));
+    xhr.send(formData);
   });
 }
 
-// GET /temp-documents/:id/status → DONE / FAILED 될 때까지 폴링용
+// POST /upload/:tempDocumentId/ai → AI 분석 큐 등록 (파일 ID 목록 필요)
+export async function requestAiAnalysis(
+  tempDocumentId: string,
+  files: Array<{ id: string; pageNo: number }>,
+): Promise<void> {
+  await axiosInstance.post(`/upload/${tempDocumentId}/ai`, { files });
+}
+
+// GET /upload/temp-list → 전체 임시 문서 상태 조회 (폴링용)
+export async function getTempDocumentList(): Promise<TempDocumentListItem[]> {
+  const res = await axiosInstance.get('/upload/temp-list');
+  const payload = (res as any)?.data ?? res;
+  return Array.isArray(payload) ? payload : [];
+}
+
+// processing-center.tsx 호환: 특정 tempDocumentId의 상태 반환
 export async function getTempDocumentStatus(tempDocumentId: string): Promise<AiStatusResponse> {
-  return uploadRequest(`/temp-documents/${tempDocumentId}/status`, {
-    method: 'GET',
-  });
+  const list = await getTempDocumentList();
+  const found = list.find((item) => item.tempDocumentId === tempDocumentId);
+  return {
+    tempDocumentId,
+    aiStatus: found?.aiStatus ?? 'PENDING',
+    resultId: null,
+    documentType: null,
+  };
 }
 
-// DONE / FAILED 될 때까지 intervalMs마다 polling, timeoutMs 초과 시 reject
+// DONE / FAILED 될 때까지 intervalMs마다 polling
 export function pollUntilDone(
   tempDocumentId: string,
   intervalMs = 4000,
