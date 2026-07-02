@@ -1,9 +1,7 @@
-import { CATEGORY_FIELDS } from '@/constants/document-fields';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { downloadAsPdf } from '@/services/download';
+import { downloadDocumentPdf } from '@/services/download';
 import {
   DocumentAlert,
-  cancelNotification,
   deleteAlert,
   getDocumentAlerts,
   updateAlert,
@@ -30,6 +28,45 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+function CollapsibleText({ label, value }: { label: string; value: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const PREVIEW = 120;
+  const needsCollapse = value.length > PREVIEW;
+  return (
+    <View style={{ gap: 4 }}>
+      <Text style={{ fontSize: 12, color: Colors.gray500 }}>{label}</Text>
+      <Text style={{ fontSize: 12, color: Colors.gray700, lineHeight: 18 }}>
+        {needsCollapse && !expanded ? value.slice(0, PREVIEW) + '…' : value}
+      </Text>
+      {needsCollapse && (
+        <TouchableOpacity onPress={() => setExpanded(!expanded)} hitSlop={8}>
+          <Text style={{ fontSize: 12, color: Colors.primary, fontWeight: '600', marginTop: 2 }}>
+            {expanded ? '접기' : '더 보기'}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  contractDate: '계약일',
+  expiryDate: '만료일',
+  renewalDate: '갱신일',
+  parties: '계약자',
+  productName: '제품명',
+  purchaseDate: '구매일',
+  warrantyPeriod: '보증기간',
+  repairDate: '수리일',
+  hospitalName: '병원명',
+  visitDate: '진료일',
+  amount: '금액',
+  medication: '약품명',
+  insurer: '보험사',
+  date: '날짜',
+  notes: '메모',
+};
+
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
@@ -39,6 +76,14 @@ function formatFileSize(bytes: number) {
 export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/cabinet' as any);
+    }
+  };
   const [downloading, setDownloading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const { pin: storedPin, verifyPinWithServer } = useAuthStore();
@@ -50,6 +95,7 @@ export default function DocumentDetailScreen() {
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalInput, setPinModalInput] = useState('');
   const [pinModalError, setPinModalError] = useState(false);
+  const [pinModalLoading, setPinModalLoading] = useState(false);
   const [pinModalPurpose, setPinModalPurpose] = useState<'enable' | 'disable'>('enable');
 
   // 알림 탭 등으로 스토어가 비어있는 채 진입할 경우 문서 목록을 새로 가져옴
@@ -82,7 +128,7 @@ export default function DocumentDetailScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <Text style={styles.notFoundText}>문서를 찾을 수 없습니다</Text>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => goBack()}>
             <Text style={styles.backLink}>돌아가기</Text>
           </TouchableOpacity>
         </View>
@@ -98,13 +144,15 @@ export default function DocumentDetailScreen() {
       {
         text: '삭제',
         style: 'destructive',
-        onPress: async () => {
-          // 이 문서에 예약된 알림 모두 취소
-          for (const n of doc.notifications ?? []) {
-            if (n.id) await cancelNotification(n.id);
-          }
-          removeDocument(doc.id);
-          router.back();
+        onPress: () => {
+          // 1) 즉시 캐비닛으로 이동 — 여기서 먼저 이동해야
+          //    removeDocument의 낙관적 업데이트(로컬 제거)가 이 화면을
+          //    재렌더해서 "문서를 찾을 수 없습니다" 깜빡임이 생기지 않음
+          router.replace('/(tabs)/cabinet' as any);
+          // 2) 삭제 처리 (로컬 즉시 제거 → API 호출)
+          removeDocument(doc.id).catch(() => {
+            showToast('문서 삭제에 실패했습니다.', 'error');
+          });
         },
       },
     ]);
@@ -142,19 +190,19 @@ export default function DocumentDetailScreen() {
   };
 
   const handlePinModalDigit = async (digit: string) => {
-    if (pinModalInput.length >= 6) return;
+    if (pinModalInput.length >= 6 || pinModalLoading) return;
     const next = pinModalInput + digit;
     setPinModalInput(next);
     setPinModalError(false);
     if (next.length === 6) {
+      setPinModalLoading(true);
       const ok = storedPin ? next === storedPin : await verifyPinWithServer(next);
+      setPinModalLoading(false);
       if (ok) {
         toggleSecured(doc.id);
         setPinModalVisible(false);
         setPinModalInput('');
-        if (pinModalPurpose === 'enable') {
-          router.replace('/(tabs)/cabinet' as any);
-        }
+        router.replace('/(tabs)/cabinet' as any);
       } else {
         setPinModalError(true);
         setTimeout(() => { setPinModalInput(''); setPinModalError(false); }, 600);
@@ -178,7 +226,7 @@ export default function DocumentDetailScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={Colors.gray700} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{doc.title}</Text>
@@ -200,13 +248,9 @@ export default function DocumentDetailScreen() {
           <TouchableOpacity
             disabled={downloading}
             onPress={async () => {
-              if (!doc.imageUri) {
-                showToast('저장된 파일 URL이 없습니다.', 'error');
-                return;
-              }
               setDownloading(true);
               try {
-                const ok = await downloadAsPdf(doc.imageUri, doc.title, doc.fileType ?? 'PDF');
+                const ok = await downloadDocumentPdf(doc.id, doc.title);
                 if (ok) showToast('PDF가 저장되었습니다.', 'success');
               } catch (e) {
                 showToast(getErrorMessage(e), 'error');
@@ -292,16 +336,29 @@ export default function DocumentDetailScreen() {
               <Text style={styles.metaEditBtn}>수정</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.infoGrid}>
-            {(CATEGORY_FIELDS[doc.category] ?? []).map((field) => (
-              <View key={field.key} style={styles.infoRow}>
-                <Text style={styles.infoLabel}>{field.label}</Text>
-                <Text style={[styles.infoValue, !doc.extractedData?.[field.key] && styles.infoValueEmpty]}>
-                  {doc.extractedData?.[field.key] || '-'}
-                </Text>
-              </View>
-            ))}
-          </View>
+          {(() => {
+            const entries = Object.entries(doc.extractedData ?? {}).filter(([, v]) => v);
+            if (entries.length === 0) {
+              return <Text style={styles.infoValueEmpty}>추출된 정보가 없습니다</Text>;
+            }
+            const shortEntries = entries.filter(([, v]) => String(v).length < 150);
+            const longEntries  = entries.filter(([, v]) => String(v).length >= 150);
+            return (
+              <>
+                <View style={styles.infoGrid}>
+                  {shortEntries.map(([k, v]) => (
+                    <View key={k} style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>{FIELD_LABELS[k] ?? k}</Text>
+                      <Text style={styles.infoValue}>{String(v)}</Text>
+                    </View>
+                  ))}
+                </View>
+                {longEntries.map(([k, v]) => (
+                  <CollapsibleText key={k} label={FIELD_LABELS[k] ?? k} value={String(v)} />
+                ))}
+              </>
+            );
+          })()}
         </View>
 
         {/* 알림 설정 */}
@@ -406,6 +463,9 @@ export default function DocumentDetailScreen() {
               ))}
             </View>
             {pinModalError && <Text style={styles.pinErrorText}>PIN이 올바르지 않습니다</Text>}
+            {pinModalLoading ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: Spacing.md }} />
+            ) : null}
             <View style={styles.pinPad}>
               {PIN_ROWS.map((row, ri) => (
                 <View key={ri} style={styles.pinRow}>
@@ -510,6 +570,8 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 13, color: Colors.gray500, width: 60 },
   infoValue: { flex: 1, fontSize: 13, color: Colors.gray800, fontWeight: '500' },
   infoValueEmpty: { color: Colors.gray300, fontWeight: '400' },
+  longFieldBlock: { gap: 6 },
+  longFieldText: { fontSize: 12, color: Colors.gray700, lineHeight: 18 },
   notifList: { gap: Spacing.sm },
   notifItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   notifInfo: { flex: 1 },

@@ -4,9 +4,10 @@ import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
 import { useAuthStore } from "@/stores/auth-store";
 import { useDocStore } from "@/stores/doc-store";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Modal,
   Platform,
@@ -25,16 +26,10 @@ const FALLBACK_CATEGORIES: (DocumentCategory | "전체")[] = [
   "보증서",
   "처방전",
   "보험서류",
+  "영수증",
   "기타",
 ];
 
-const CATEGORY_ICONS: Record<string, string> = {
-  계약서: "📄",
-  보증서: "🛡️",
-  처방전: "💊",
-  보험서류: "🏥",
-  기타: "📁",
-};
 
 const SORT_LABELS = {
   recent: "최신순",
@@ -101,12 +96,22 @@ export default function CabinetScreen() {
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalInput, setPinModalInput] = useState('');
   const [pinModalError, setPinModalError] = useState(false);
+  const [pinModalLoading, setPinModalLoading] = useState(false);
   const [pendingDocId, setPendingDocId] = useState<string | null>(null);
+  const [pinModalPurpose, setPinModalPurpose] = useState<'view' | 'disable'>('view');
 
+  // 최초 마운트: 로딩 스켈레톤 표시하며 fetch
   useEffect(() => {
     fetchDocuments();
     fetchCategories();
   }, [fetchDocuments, fetchCategories]);
+
+  // 화면 포커스될 때마다 (상세페이지에서 돌아올 때 등) silent re-fetch
+  useFocusEffect(
+    useCallback(() => {
+      fetchDocuments(true);
+    }, [fetchDocuments])
+  );
 
   const categoryTabs: (DocumentCategory | "전체")[] =
     categories.length > 0
@@ -126,6 +131,7 @@ export default function CabinetScreen() {
   const handleDocPress = (docId: string, isSecured: boolean) => {
     if (isSecured) {
       setPendingDocId(docId);
+      setPinModalPurpose('view');
       setPinModalInput('');
       setPinModalError(false);
       setPinModalVisible(true);
@@ -134,19 +140,40 @@ export default function CabinetScreen() {
     }
   };
 
+  const handleLockToggle = (docId: string, isSecured: boolean) => {
+    if (isSecured) {
+      // 보호 해제 시 PIN 확인
+      setPendingDocId(docId);
+      setPinModalPurpose('disable');
+      setPinModalInput('');
+      setPinModalError(false);
+      setPinModalVisible(true);
+    } else {
+      // 보호 설정은 상세페이지에서만
+      router.push(`/document/${docId}` as any);
+    }
+  };
+
   const PIN_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','del']];
 
   const handlePinDigit = async (digit: string) => {
-    if (pinModalInput.length >= 6) return;
+    if (pinModalInput.length >= 6 || pinModalLoading) return;
     const next = pinModalInput + digit;
     setPinModalInput(next);
     setPinModalError(false);
     if (next.length === 6) {
+      setPinModalLoading(true);
       const ok = storedPin ? next === storedPin : await verifyPinWithServer(next);
+      setPinModalLoading(false);
       if (ok) {
+        if (pinModalPurpose === 'disable' && pendingDocId) {
+          toggleSecured(pendingDocId);
+        }
         setPinModalVisible(false);
         setPinModalInput('');
-        if (pendingDocId) router.push(`/document/${pendingDocId}` as any);
+        if (pinModalPurpose === 'view' && pendingDocId) {
+          router.push(`/document/${pendingDocId}` as any);
+        }
       } else {
         setPinModalError(true);
         setTimeout(() => { setPinModalInput(''); setPinModalError(false); }, 600);
@@ -334,9 +361,9 @@ export default function CabinetScreen() {
                 onPress={() => handleDocPress(doc.id, !!doc.isSecured)}
               >
                 <View style={styles.docLeft}>
-                  <Text style={styles.docIcon}>
-                    {CATEGORY_ICONS[doc.category] ?? "📄"}
-                  </Text>
+                  <View style={styles.docIcon}>
+                    <Ionicons name="document-text-outline" size={22} color={Colors.gray500} />
+                  </View>
                   <View style={styles.docInfo}>
                     <Text style={styles.docTitle} numberOfLines={1}>
                       {doc.title}
@@ -371,7 +398,7 @@ export default function CabinetScreen() {
                   <TouchableOpacity
                     onPress={(event) => {
                       event.stopPropagation();
-                      toggleSecured(doc.id);
+                      handleLockToggle(doc.id, !!doc.isSecured);
                     }}
                     style={styles.favBtn}
                   >
@@ -409,7 +436,9 @@ export default function CabinetScreen() {
       >
         <View style={styles.pinOverlay}>
           <View style={styles.pinCard}>
-            <Text style={styles.pinCardTitle}>보안 문서</Text>
+            <Text style={styles.pinCardTitle}>
+              {pinModalPurpose === 'disable' ? 'PIN 보호 해제' : '보안 문서'}
+            </Text>
             <Text style={styles.pinCardSub}>PIN 번호를 입력해주세요</Text>
             <View style={styles.pinDots}>
               {[0,1,2,3,4,5].map((i) => (
@@ -424,33 +453,37 @@ export default function CabinetScreen() {
               ))}
             </View>
             {pinModalError && <Text style={styles.pinErrorText}>PIN이 올바르지 않습니다</Text>}
-            <View style={styles.pinPad}>
-              {PIN_ROWS.map((row, ri) => (
-                <View key={ri} style={styles.pinRow}>
-                  {row.map((key) =>
-                    key === '' ? (
-                      <View key="empty" style={styles.pinKey} />
-                    ) : key === 'del' ? (
-                      <TouchableOpacity
-                        key="del"
-                        style={styles.pinKey}
-                        onPress={() => setPinModalInput((p) => p.slice(0, -1))}
-                      >
-                        <Ionicons name="backspace-outline" size={22} color={Colors.gray700} />
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        key={key}
-                        style={styles.pinKey}
-                        onPress={() => handlePinDigit(key)}
-                      >
-                        <Text style={styles.pinKeyText}>{key}</Text>
-                      </TouchableOpacity>
-                    )
-                  )}
-                </View>
-              ))}
-            </View>
+            {pinModalLoading ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: Spacing.md }} />
+            ) : (
+              <View style={styles.pinPad}>
+                {PIN_ROWS.map((row, ri) => (
+                  <View key={ri} style={styles.pinRow}>
+                    {row.map((key) =>
+                      key === '' ? (
+                        <View key="empty" style={styles.pinKey} />
+                      ) : key === 'del' ? (
+                        <TouchableOpacity
+                          key="del"
+                          style={styles.pinKey}
+                          onPress={() => setPinModalInput((p) => p.slice(0, -1))}
+                        >
+                          <Ionicons name="backspace-outline" size={22} color={Colors.gray700} />
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          key={key}
+                          style={styles.pinKey}
+                          onPress={() => handlePinDigit(key)}
+                        >
+                          <Text style={styles.pinKeyText}>{key}</Text>
+                        </TouchableOpacity>
+                      )
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
             <TouchableOpacity style={styles.pinCancel} onPress={() => setPinModalVisible(false)}>
               <Text style={styles.pinCancelText}>취소</Text>
             </TouchableOpacity>
@@ -610,7 +643,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     flex: 1,
   },
-  docIcon: { fontSize: 28 },
+  docIcon: { width: 36, height: 36, borderRadius: 8, backgroundColor: Colors.gray100, alignItems: 'center', justifyContent: 'center' },
   docInfo: { flex: 1, gap: 3 },
   docTitle: { fontSize: 15, fontWeight: "600", color: Colors.gray900 },
   docCategory: { fontSize: 12, color: Colors.primary, fontWeight: "500" },

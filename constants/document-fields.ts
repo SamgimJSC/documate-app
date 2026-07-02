@@ -32,6 +32,12 @@ export const CATEGORY_FIELDS: Record<DocumentCategory, ExtractedField[]> = {
     { key: 'expiryDate',   label: '만료일', placeholder: 'YYYY-MM-DD' },
     { key: 'amount',       label: '보험금', placeholder: '예: 1,000만원' },
   ],
+  영수증: [
+    { key: 'date',    label: '날짜',   placeholder: 'YYYY-MM-DD' },
+    { key: 'amount',  label: '금액',   placeholder: '예: 31,000원' },
+    { key: 'parties', label: '발행처', placeholder: '예: 스타벅스 강남점' },
+    { key: 'notes',   label: '메모',   placeholder: '기타 메모', multiline: true },
+  ],
   기타: [
     { key: 'date',    label: '날짜',   placeholder: 'YYYY-MM-DD' },
     { key: 'amount',  label: '금액',   placeholder: '예: 50,000원' },

@@ -103,13 +103,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     const res = await axiosInstance.get(
       `/auth/check-email?email=${encodeURIComponent(email)}`,
     );
-    return res?.exists ?? false;
+    return res?.data?.exists ?? false;
   },
 
   verifyPassword: async (password) => {
     try {
       const res = await axiosInstance.post("/auth/password/verify", { password });
-      return res?.valid ?? false;
+      return res?.data?.valid ?? false;
     } catch {
       return false;
     }

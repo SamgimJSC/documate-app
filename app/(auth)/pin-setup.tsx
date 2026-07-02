@@ -3,6 +3,7 @@ import { Colors, Radius, Spacing } from "@/constants/theme";
 import { rememberPinLoginEmail } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -123,7 +124,7 @@ export default function PinSetupScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.iconWrap}>
-          <Text style={styles.icon}>🔐</Text>
+          <Ionicons name="lock-closed-outline" size={48} color={Colors.primary} />
         </View>
         <Text style={styles.title}>{titleText}</Text>
         <Text style={styles.desc}>{descText}</Text>

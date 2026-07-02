@@ -1,11 +1,13 @@
 // ─── upload-progress.tsx의 DEMO_MODE와 맞춰서 설정 ───────────────────────
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   AiStatus,
   AiStatusResponse,
+  getTempDocumentList,
   getTempDocumentStatus,
+  requestAiAnalysis,
 } from '@/services/upload';
 import { useDocStore } from '@/stores/doc-store';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,6 +31,7 @@ interface ProcessingItem {
   tempDocumentId: string;
   status: AiStatus;
   resultId?: string | null;
+  resultDocumentId?: string | null; // OCR 완료 후 생성된 실제 문서 ID
   documentType?: string | null;
   uploadedAtDate: string;
   uploadedAtTime: string;
@@ -62,6 +65,10 @@ export default function ProcessingCenterScreen() {
   const router = useRouter();
   const { ids } = useLocalSearchParams<{ ids: string }>();
   const { fetchDocuments } = useDocStore();
+  // 화면 진입 시점의 문서 ID 스냅샷 → DONE 후 새 문서 식별에 사용
+  const existingDocIdsRef = useRef<Set<string>>(
+    new Set(useDocStore.getState().documents.map((d) => d.id))
+  );
 
   const tempIds: string[] = (() => {
     try { return ids ? JSON.parse(ids) : []; } catch { return []; }
@@ -80,6 +87,8 @@ export default function ProcessingCenterScreen() {
   const [tab, setTab] = useState<TabKey>('all');
   const [refreshing, setRefreshing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 완료 후 문서 조회를 딱 한 번만 실행하는 가드
+  const completionFetchedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -114,9 +123,37 @@ export default function ProcessingCenterScreen() {
     );
     if (!hasPending) {
       if (pollRef.current) clearInterval(pollRef.current);
-      fetchDocuments();
+      // guard: setItems → items 변경 → 이펙트 재실행 → 무한루프 방지
+      if (!DEMO_MODE && !completionFetchedRef.current) {
+        completionFetchedRef.current = true;
+        // temp doc의 createdAt을 가져와서 가장 가까운 새 문서와 매칭
+        getTempDocumentList().then((tempList) =>
+          fetchDocuments().then(() => {
+            const newDocs = useDocStore.getState().documents.filter(
+              (d) => !existingDocIdsRef.current.has(d.id)
+            );
+            if (newDocs.length === 0) return;
+            setItems((prev) =>
+              prev.map((it) => {
+                if (it.status !== 'DONE' || it.resultDocumentId) return it;
+                const tempInfo = tempList.find((t) => t.tempDocumentId === it.tempDocumentId);
+                if (!tempInfo) return { ...it, resultDocumentId: newDocs[0]?.id ?? null };
+                const tempTime = new Date(tempInfo.createdAt).getTime();
+                const closest = newDocs.reduce((best, doc) => {
+                  const dt = Math.abs(new Date(doc.uploadedAt).getTime() - tempTime);
+                  const db = Math.abs(new Date(best.uploadedAt).getTime() - tempTime);
+                  return dt < db ? doc : best;
+                });
+                return { ...it, resultDocumentId: closest?.id ?? null };
+              })
+            );
+          })
+        );
+      }
       return;
     }
+    // 대기 항목이 다시 생기면 가드 리셋
+    completionFetchedRef.current = false;
     pollRef.current = setInterval(() => refresh(), 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [items]);
@@ -136,11 +173,35 @@ export default function ProcessingCenterScreen() {
   ];
 
   const handleItemPress = (item: ProcessingItem) => {
-    if (item.status !== 'DONE' || !item.resultId) return;
-    const path = item.documentType === 'RECEIPT'
-      ? `/receipt-detail/${item.resultId}`
-      : `/document/${item.resultId}`;
-    router.push(path as any);
+    if (item.status !== 'DONE') return;
+    if (item.resultDocumentId) {
+      router.push(`/document/${item.resultDocumentId}` as any);
+    }
+  };
+
+  const handleRetry = async (tempDocumentId: string) => {
+    // FAILED → PROCESSING으로 즉시 낙관적 업데이트
+    setItems((prev) =>
+      prev.map((it) =>
+        it.tempDocumentId === tempDocumentId ? { ...it, status: 'PROCESSING' as AiStatus } : it
+      )
+    );
+    try {
+      const list = await getTempDocumentList();
+      const found = list.find((it) => it.tempDocumentId === tempDocumentId);
+      if (!found || found.files.length === 0) throw new Error('파일 정보를 찾을 수 없습니다.');
+      await requestAiAnalysis(
+        tempDocumentId,
+        found.files.map((f) => ({ id: f.id, pageNo: f.pageNo })),
+      );
+    } catch {
+      // 실패 시 원복
+      setItems((prev) =>
+        prev.map((it) =>
+          it.tempDocumentId === tempDocumentId ? { ...it, status: 'FAILED' as AiStatus } : it
+        )
+      );
+    }
   };
 
   return (
@@ -208,7 +269,7 @@ export default function ProcessingCenterScreen() {
             </View>
           ) : (
             filtered.map((item) => {
-              const isNavigable = item.status === 'DONE' && !!item.resultId;
+              const isNavigable = item.status === 'DONE' && !!item.resultDocumentId;
               return (
                 <TouchableOpacity
                   key={item.tempDocumentId}
@@ -230,7 +291,18 @@ export default function ProcessingCenterScreen() {
                     <Text style={styles.colVal}>{item.uploadedAtTime}</Text>
                   </View>
                   <View style={{ width: 72, alignItems: 'center' }}>
-                    <StatusBadge status={item.status} />
+                    {item.status === 'FAILED' ? (
+                      <TouchableOpacity
+                        onPress={() => handleRetry(item.tempDocumentId)}
+                        style={styles.retryBtn}
+                        hitSlop={6}
+                      >
+                        <Ionicons name="refresh-outline" size={12} color={Colors.error} />
+                        <Text style={styles.retryBtnText}>재시도</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <StatusBadge status={item.status} />
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -367,4 +439,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: Spacing.sm,
   },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.errorLight,
+    borderRadius: Radius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  retryBtnText: { fontSize: 11, fontWeight: '600', color: Colors.error },
 });

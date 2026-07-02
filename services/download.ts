@@ -2,74 +2,60 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 
-/** 이미지(JPG/PNG)를 PDF로 변환한 뒤 저장/공유한다. PDF는 그대로 처리. */
-export async function downloadAsPdf(
-  url: string,
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, '') ?? '';
+
+/** 서버의 GET /documents/:id/download 엔드포인트로 PDF를 받아 저장/공유한다. */
+export async function downloadDocumentPdf(
+  documentId: string,
   title: string,
-  fileType: 'PDF' | 'JPG' | 'PNG' = 'PDF',
 ): Promise<boolean> {
   const safeTitle = title.replace(/[^\w가-힣\s\-]/g, '').trim() || 'document';
   const pdfFileName = `${safeTitle}.pdf`;
 
-  let pdfUri: string;
+  // fetch는 React Native의 네이티브 HTTP 레이어를 사용하므로 쿠키가 자동으로 전송됨
+  const response = await fetch(`${BASE_URL}/documents/${documentId}/download`, {
+    method: 'GET',
+    credentials: 'include',
+  });
 
-  if (fileType === 'PDF') {
-    const dest = FileSystem.cacheDirectory + pdfFileName;
-    const { uri } = await FileSystem.downloadAsync(url, dest);
-    pdfUri = uri;
-  } else {
-    // 이미지 → base64 → HTML → PDF
-    const tempImg = FileSystem.cacheDirectory + `temp_img.${fileType.toLowerCase()}`;
-    await FileSystem.downloadAsync(url, tempImg);
-    const base64 = await FileSystem.readAsStringAsync(tempImg, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    await FileSystem.deleteAsync(tempImg, { idempotent: true });
-
-    const mime = fileType === 'JPG' ? 'image/jpeg' : 'image/png';
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { background:#fff; display:flex; align-items:center; justify-content:center;
-           min-height:100vh; }
-    img  { max-width:100%; max-height:100vh; object-fit:contain; display:block; }
-  </style>
-</head>
-<body>
-  <img src="data:${mime};base64,${base64}" />
-</body>
-</html>`;
-
-    const Print = await import('expo-print');
-    const { uri } = await Print.printToFileAsync({ html, base64: false });
-    pdfUri = uri;
+  if (!response.ok) {
+    throw new Error(`다운로드 실패: ${response.status}`);
   }
+
+  // ArrayBuffer → base64 변환 (대용량 파일 대비 청크 처리)
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
+  }
+  const base64 = btoa(binary);
+
+  const cacheUri = FileSystem.cacheDirectory + pdfFileName;
+  await FileSystem.writeAsStringAsync(cacheUri, base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
 
   // Android: SAF로 지정 폴더에 저장
   if (Platform.OS === 'android') {
     const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
     if (perm.granted) {
-      const base64 = await FileSystem.readAsStringAsync(pdfUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
+      const safUri = await FileSystem.StorageAccessFramework.createFileAsync(
         perm.directoryUri,
         pdfFileName,
         'application/pdf',
       );
-      await FileSystem.writeAsStringAsync(destUri, base64, {
+      await FileSystem.writeAsStringAsync(safUri, base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
       return true;
     }
   }
 
-  // iOS (또는 Android SAF 거부): 공유 시트
+  // iOS (또는 Android SAF 거부 시): 공유 시트
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(pdfUri, {
+    await Sharing.shareAsync(cacheUri, {
       mimeType: 'application/pdf',
       UTI: 'com.adobe.pdf',
       dialogTitle: pdfFileName,

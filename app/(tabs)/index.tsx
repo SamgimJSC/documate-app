@@ -52,19 +52,12 @@ export default function HomeScreen() {
     return diff;
   };
 
-  const categoryIcons: Record<string, string> = {
-    '계약서': '📄',
-    '보증서': '🛡️',
-    '처방전': '💊',
-    '보험서류': '🏥',
-    '기타': '📁',
-  };
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>안녕하세요, {user?.nickname ?? ''}님 👋</Text>
+          <Text style={styles.greeting}>안녕하세요, {user?.nickname ?? ''}님</Text>
           <Text style={styles.subGreeting}>오늘도 스마트하게 관리하세요</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/notification' as any)} style={styles.notifBtn}>
@@ -82,7 +75,7 @@ export default function HomeScreen() {
         <View style={styles.storageCard}>
           <View style={styles.storageTop}>
             <Text style={styles.storageLabel}>스토리지 사용량</Text>
-            <Text style={styles.storagePlan}>{user?.plan === 'pro' ? '🔷 Pro' : 'Free'}</Text>
+            <Text style={styles.storagePlan}>{user?.plan === 'pro' ? 'Pro' : 'Free'}</Text>
           </View>
           <View style={styles.storageBar}>
             <View style={[styles.storageBarFill, { width: `${storagePercent}%` as any }]} />
@@ -107,7 +100,7 @@ export default function HomeScreen() {
                     key={doc.id}
                     style={styles.expiringItem}
                     onPress={() => router.push(`/document/${doc.id}` as any)}>
-                    <Text style={styles.expiringIcon}>{categoryIcons[doc.category] ?? '📄'}</Text>
+                    <Ionicons name="document-text-outline" size={22} color={Colors.gray500} />
                     <View style={styles.expiringInfo}>
                       <Text style={styles.expiringTitle} numberOfLines={1}>{doc.title}</Text>
                       <Text style={styles.expiringDate}>
@@ -167,7 +160,7 @@ export default function HomeScreen() {
                   key={doc.id}
                   style={styles.docItem}
                   onPress={() => router.push(`/document/${doc.id}` as any)}>
-                  <Text style={styles.docIcon}>{categoryIcons[doc.category] ?? '📄'}</Text>
+                  <Ionicons name="document-text-outline" size={22} color={Colors.gray500} />
                   <View style={styles.docInfo}>
                     <Text style={styles.docTitle} numberOfLines={1}>{doc.title}</Text>
                     <Text style={styles.docMeta}>{doc.category} · {doc.uploadedAt}</Text>
@@ -257,7 +250,7 @@ const styles = S.create({
     gap: Spacing.sm,
     paddingVertical: Spacing.xs,
   },
-  expiringIcon: { fontSize: 24 },
+  expiringIcon: {},
   expiringInfo: { flex: 1 },
   expiringTitle: { fontSize: 14, fontWeight: '600', color: Colors.gray800 },
   expiringDate: { fontSize: 12, color: Colors.gray500 },
@@ -282,7 +275,7 @@ const styles = S.create({
 
   docList: { gap: Spacing.sm },
   docItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xs },
-  docIcon: { fontSize: 24, width: 36, textAlign: 'center' },
+  docIcon: {},
   docInfo: { flex: 1 },
   docTitle: { fontSize: 14, fontWeight: '600', color: Colors.gray800 },
   docMeta: { fontSize: 12, color: Colors.gray500 },

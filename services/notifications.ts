@@ -90,7 +90,7 @@ export async function rescheduleAllNotifications(
 // 즉시 알림 (테스트용)
 export async function sendTestNotification() {
   await Notifications.scheduleNotificationAsync({
-    content: { title: '테스트 알림 🔔', body: '알림이 정상 작동합니다!', sound: true },
+    content: { title: '테스트 알림', body: '알림이 정상 작동합니다!', sound: true },
     trigger: null,
   });
 }
