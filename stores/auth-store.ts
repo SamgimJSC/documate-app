@@ -1,5 +1,18 @@
-import { unregisterDeviceToken } from "@/services/firebaseMessaging";
-import axiosInstance from "@/utils/axios.util";
+import {
+  BIOMETRIC_ENABLED_KEY,
+  BIOMETRIC_LOGIN_EMAIL_KEY,
+  PIN_LOGIN_EMAIL_KEY,
+  changePassword,
+  getCurrentUser,
+  rememberBiometricLoginEmail,
+  setBiometricLoginEnabled,
+  updateNickname as updateNicknameRequest,
+  verifyCurrentPassword,
+} from "@/services/auth";
+import {
+  createBiometricKeyPair,
+  deleteBiometricKeys,
+} from "@/services/rnb";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
@@ -24,18 +37,26 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   loginWithPin: (pinNumber: string) => Promise<boolean>;
   logout: () => void;
-  register: (email: string, password: string, nickname: string) => Promise<void>;
-  checkEmailExists: (email: string) => Promise<boolean>;
+  forgetSavedLogin: () => void;
+  register: (
+    email: string,
+    password: string,
+    nickname: string,
+  ) => Promise<void>;
+  checkEmailExists: (email: string) => boolean;
   verifyPassword: (password: string) => Promise<boolean>;
-  updatePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  updatePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<void>;
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
   verifyPinWithServer: (pinNumber: string) => Promise<boolean>;
   changePinWithServer: (currentPin: string, newPin: string) => Promise<void>;
   setPinVerified: (verified: boolean) => void;
-  enableBiometric: () => void;
-  disableBiometric: () => void;
-  updateNickname: (nickname: string) => void;
+  enableBiometric: (email?: string) => Promise<void>;
+  disableBiometric: () => Promise<void>;
+  updateNickname: (nickname: string) => Promise<void>;
   upgradeToPro: () => void;
 }
 
@@ -44,8 +65,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   token: null,
   isAuthenticated: false,
   isPinVerified: false,
-  isPinSet: false,
+  // TODO [배포 전]: isPinSet: false, pin: "", password: "" 으로 초기화
+  isPinSet: true,
   pin: "",
+  password: "test",
   isBiometricEnabled: false,
 
   login: async (email, password) => {
@@ -83,9 +106,31 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   logout: () => {
-    unregisterDeviceToken();
-    axiosInstance.post("/auth/logout").catch(() => {});
-    SecureStore.deleteItemAsync("accessToken").catch(() => {});
+    const keepBiometricLogin = get().isBiometricEnabled;
+    void SecureStore.deleteItemAsync("accessToken");
+    if (!keepBiometricLogin) {
+      void SecureStore.deleteItemAsync("refreshToken");
+    }
+    set({
+      user: null,
+      token: null,
+      isAuthenticated: false,
+      isPinVerified: false,
+      isPinSet: false,
+      pin: "",
+      isBiometricEnabled: keepBiometricLogin,
+    });
+  },
+
+  forgetSavedLogin: () => {
+    void Promise.all([
+      SecureStore.deleteItemAsync("accessToken"),
+      SecureStore.deleteItemAsync("refreshToken"),
+      SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY),
+      SecureStore.deleteItemAsync(PIN_LOGIN_EMAIL_KEY),
+    ]);
+    void deleteBiometricKeys();
     set({
       user: null,
       token: null,
@@ -106,20 +151,15 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     return res?.data?.exists ?? false;
   },
 
-  verifyPassword: async (password) => {
-    try {
-      const res = await axiosInstance.post("/auth/password/verify", { password });
-      return res?.data?.valid ?? false;
-    } catch {
-      return false;
-    }
-  },
+  verifyPassword: async (password) => verifyCurrentPassword(password),
 
   updatePassword: async (currentPassword, newPassword) => {
-    await axiosInstance.post("/auth/password/update", { currentPassword, newPassword });
+    await changePassword(currentPassword, newPassword);
   },
 
-  setPin: (pin) => set({ pin, isPinSet: true }),
+  setPin: (pin) => {
+    set({ pin, isPinSet: true });
+  },
 
   verifyPin: (pin) => get().pin === pin,
 
@@ -139,20 +179,41 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   setPinVerified: (verified) => set({ isPinVerified: verified }),
 
-  enableBiometric: () => {
-    void SecureStore.setItemAsync("biometricEnabled", "true");
+  enableBiometric: async (requestedEmail) => {
+    const email =
+      requestedEmail || get().user?.email || (await getCurrentUser()).email;
+    if (!email) throw new Error("BIOMETRIC_EMAIL_NOT_FOUND");
+
+    const { biometricType, publicKey } = await createBiometricKeyPair();
+    try {
+      await setBiometricLoginEnabled(true, biometricType, publicKey);
+    } catch (error) {
+      await deleteBiometricKeys();
+      throw error;
+    }
+    await Promise.all([
+      SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, "true"),
+      rememberBiometricLoginEmail(email),
+    ]);
     set({ isBiometricEnabled: true });
   },
 
-  disableBiometric: () => {
-    void SecureStore.deleteItemAsync("biometricEnabled");
+  disableBiometric: async () => {
+    await setBiometricLoginEnabled(false);
+    await Promise.all([
+      SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY),
+      deleteBiometricKeys(),
+    ]);
     set({ isBiometricEnabled: false });
   },
 
-  updateNickname: (nickname) =>
+  updateNickname: async (nickname) => {
+    const savedNickname = await updateNicknameRequest(nickname);
     set((state) => ({
-      user: state.user ? { ...state.user, nickname } : null,
-    })),
+      user: state.user ? { ...state.user, nickname: savedNickname } : null,
+    }));
+  },
 
   upgradeToPro: () =>
     set((state) => ({

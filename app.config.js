@@ -48,6 +48,12 @@ export default {
       ],
       "expo-secure-store",
       [
+        "expo-local-authentication",
+        {
+          faceIDPermission: "DocuMate가 로그인 확인을 위해 Face ID를 사용하도록 허용합니다.",
+        },
+      ],
+      [
         "expo-notifications",
         {
           icon: "./assets/images/android-icon-monochrome.png",

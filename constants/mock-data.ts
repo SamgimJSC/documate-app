@@ -44,5 +44,6 @@ export interface Receipt {
   paymentItem?: string;
   memo?: string;
   inputMethod?: 'OCR' | 'MANUAL' | string;
+  fileSizeBytes?: number;
 }
 

@@ -9,8 +9,11 @@ import {
 } from "@/services/notifications";
 import { useAuthStore } from "@/stores/auth-store";
 import { useDocStore } from "@/stores/doc-store";
+import { useReceiptStore } from "@/stores/receipt-store";
 import { analyzePassword, validatePassword } from "@/utils/validation";
+import { calculateStorageUsedGb, formatStorageUsed } from "@/utils/storage-usage";
 import { Ionicons } from "@expo/vector-icons";
+import { isAxiosError } from "axios";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -49,12 +52,8 @@ function MenuItem({
   onToggle,
   danger,
 }: MenuItemProps) {
-  return (
-    <TouchableOpacity
-      style={styles.menuItem}
-      onPress={onPress}
-      activeOpacity={toggle ? 1 : 0.7}
-    >
+  const content = (
+    <>
       <View style={[styles.menuIconWrap, danger && styles.menuIconDanger]}>
         <Ionicons
           name={icon}
@@ -71,6 +70,7 @@ function MenuItem({
           <Switch
             value={toggleValue}
             onValueChange={onToggle}
+            disabled={!onToggle}
             trackColor={{ false: Colors.gray200, true: Colors.primary }}
           />
         ) : (
@@ -83,6 +83,20 @@ function MenuItem({
           )
         )}
       </View>
+    </>
+  );
+
+  if (toggle) {
+    return <View style={styles.menuItem}>{content}</View>;
+  }
+
+  return (
+    <TouchableOpacity
+      style={styles.menuItem}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      {content}
     </TouchableOpacity>
   );
 }
@@ -90,9 +104,13 @@ function MenuItem({
 export default function MyPageScreen() {
   const router = useRouter();
   const documents = useDocStore((state) => state.documents);
+  const fetchDocuments = useDocStore((state) => state.fetchDocuments);
+  const receipts = useReceiptStore((state) => state.receipts);
+  const fetchReceipts = useReceiptStore((state) => state.fetchReceipts);
   const {
     user,
     logout,
+    forgetSavedLogin,
     isBiometricEnabled,
     enableBiometric,
     disableBiometric,
@@ -116,6 +134,7 @@ export default function MyPageScreen() {
   const [nicknameMessage, setNicknameMessage] = useState<string | null>(null);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [biometricUpdating, setBiometricUpdating] = useState(false);
 
   const { typeCount: newPwTypeCount, strengthLabel: newPwStrengthLabel } =
     useMemo(() => analyzePassword(newPassword), [newPassword]);
@@ -129,13 +148,22 @@ export default function MyPageScreen() {
           ? Colors.warning
           : Colors.success;
 
+  const storageUsed = calculateStorageUsedGb(
+    documents,
+    receipts,
+    user?.storageUsed ?? 0,
+  );
   const storagePercent = user
-    ? Math.min(100, Math.round((user.storageUsed / user.storageLimit) * 100))
+    ? Math.min(100, Math.round((storageUsed / user.storageLimit) * 100))
     : 0;
 
   useEffect(() => {
     setNicknameInput(user?.nickname ?? "");
   }, [user]);
+
+  useEffect(() => {
+    void Promise.all([fetchDocuments(), fetchReceipts()]);
+  }, [fetchDocuments, fetchReceipts]);
 
   useEffect(() => {
     getNotificationSettings()
@@ -187,7 +215,7 @@ export default function MyPageScreen() {
     ]);
   };
 
-  const handleSaveNickname = () => {
+  const handleSaveNickname = async () => {
     const trimmed = nicknameInput.trim();
     if (!trimmed) {
       setNicknameMessage("닉네임을 입력해주세요.");
@@ -197,8 +225,30 @@ export default function MyPageScreen() {
       setNicknameMessage("변경 사항이 없습니다.");
       return;
     }
-    updateNickname(trimmed);
-    setNicknameMessage("닉네임이 저장되었습니다.");
+    if (trimmed.length < 2 || trimmed.length > 8) {
+      setNicknameMessage("닉네임은 2~8자로 입력해주세요.");
+      return;
+    }
+    if (!/^[가-힣A-Za-z]+$/.test(trimmed)) {
+      setNicknameMessage("닉네임은 한글 또는 영문만 사용할 수 있습니다.");
+      return;
+    }
+
+    try {
+      await updateNickname(trimmed);
+      setNicknameMessage("닉네임이 저장되었습니다.");
+    } catch (error: unknown) {
+      const code = isAxiosError(error)
+        ? error.response?.data?.code ?? error.response?.data?.errorCode
+        : undefined;
+      setNicknameMessage(
+        code === "NICKNAME_ALREADY_USED"
+          ? "이미 사용 중인 닉네임입니다."
+          : code === "INVALID_NICKNAME"
+            ? "사용할 수 없는 닉네임입니다."
+            : "닉네임 변경에 실패했습니다.",
+      );
+    }
   };
 
   const handleStartPasswordChange = () => {
@@ -216,12 +266,23 @@ export default function MyPageScreen() {
       setPasswordError("현재 비밀번호를 입력해주세요.");
       return;
     }
-    if (!(await verifyPassword(currentPassword))) {
-      setPasswordError("현재 비밀번호가 올바르지 않습니다.");
-      return;
+    try {
+      if (!(await verifyPassword(currentPassword))) {
+        setPasswordError("현재 비밀번호가 올바르지 않습니다.");
+        return;
+      }
+      setPasswordStep("change");
+      setPasswordError(null);
+    } catch (error: unknown) {
+      const code = isAxiosError(error)
+        ? error.response?.data?.code ?? error.response?.data?.errorCode
+        : undefined;
+      setPasswordError(
+        code === "INVALID_PASSWORD"
+          ? "현재 비밀번호가 올바르지 않습니다."
+          : "비밀번호 확인에 실패했습니다.",
+      );
     }
-    setPasswordStep("change");
-    setPasswordError(null);
   };
 
   const handleUpdatePassword = async () => {
@@ -245,10 +306,67 @@ export default function MyPageScreen() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-    } catch {
+    } catch (error: unknown) {
+      const code = isAxiosError(error)
+        ? error.response?.data?.code ?? error.response?.data?.errorCode
+        : undefined;
       setPasswordError(
-        "비밀번호 변경에 실패했습니다. 현재 비밀번호를 다시 확인해주세요.",
+        code === "INVALID_PASSWORD"
+          ? "현재 비밀번호가 올바르지 않습니다."
+          : code === "INVALID_NEW_PASSWORD_FORMAT"
+            ? "새 비밀번호 형식을 확인해주세요."
+            : "비밀번호 변경에 실패했습니다.",
       );
+    }
+  };
+
+  const handleBiometricToggle = async (value: boolean) => {
+    if (biometricUpdating) return;
+    setBiometricUpdating(true);
+    try {
+      if (value) {
+        await enableBiometric();
+      } else {
+        await disableBiometric();
+      }
+      Alert.alert(
+        "생체인증",
+        value
+          ? "생체인증이 활성화되었습니다."
+          : "생체인증이 해제되었습니다.",
+        [
+          {
+            text: "확인",
+            onPress: () => router.replace("/(tabs)/mypage"),
+          },
+        ],
+      );
+    } catch (error: unknown) {
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      const code = isAxiosError(error)
+        ? error.response?.data?.code ?? error.response?.data?.errorCode
+        : undefined;
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error("생체인증 설정 변경 실패:", {
+        status,
+        code,
+        message: errorMessage,
+        response: isAxiosError(error) ? error.response?.data : undefined,
+      });
+      const message =
+        errorMessage === "BIOMETRIC_NATIVE_MODULE_UNAVAILABLE"
+          ? "생체인증 모듈이 현재 앱에 포함되지 않았습니다. 최신 개발 빌드를 다시 설치해주세요."
+          : errorMessage === "BIOMETRIC_NOT_AVAILABLE"
+          ? "기기에 등록된 생체정보가 없습니다."
+          : errorMessage === "BIOMETRIC_CANCELLED"
+            ? "생체인증이 취소되었습니다."
+          : status === 401 || code === "INVALID_TOKEN"
+            ? "로그인 세션이 만료되었습니다. 이메일로 다시 로그인해주세요."
+            : "생체인증 설정을 변경하지 못했습니다.";
+      Alert.alert("생체인증", message);
+    } finally {
+      setBiometricUpdating(false);
     }
   };
 
@@ -258,7 +376,7 @@ export default function MyPageScreen() {
       "탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠습니까?",
       [
         { text: "취소", style: "cancel" },
-        { text: "탈퇴", style: "destructive", onPress: logout },
+        { text: "탈퇴", style: "destructive", onPress: forgetSavedLogin },
       ],
     );
   };
@@ -334,7 +452,7 @@ export default function MyPageScreen() {
           <View style={styles.storageRow}>
             <Text style={styles.storageLabel}>스토리지 사용량</Text>
             <Text style={styles.storageValue}>
-              {user?.storageUsed.toFixed(1) ?? "0.0"}GB /{" "}
+              {formatStorageUsed(storageUsed)} /{" "}
               {user?.storageLimit ?? 0}GB
             </Text>
           </View>
@@ -478,9 +596,7 @@ export default function MyPageScreen() {
                 onPress={() => {}}
                 toggle
                 toggleValue={isBiometricEnabled}
-                onToggle={(value) =>
-                  value ? enableBiometric() : disableBiometric()
-                }
+                onToggle={biometricUpdating ? undefined : handleBiometricToggle}
               />
             </View>
           </View>

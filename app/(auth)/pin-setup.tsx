@@ -155,7 +155,12 @@ export default function PinSetupScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.modalButton, styles.modalSecondary]}
-              onPress={() => router.replace("/(auth)/biometric-setup" as any)}
+              onPress={() =>
+                router.replace({
+                  pathname: "/(auth)/biometric-setup",
+                  params: { email: params.email ?? "" },
+                })
+              }
             >
               <Text style={styles.modalSecondaryText}>생체인증 등록하기</Text>
             </TouchableOpacity>

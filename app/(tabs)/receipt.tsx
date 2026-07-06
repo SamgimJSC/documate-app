@@ -71,6 +71,7 @@ function offsetMonth(base: string, delta: number): string {
 export default function ReceiptScreen() {
   const router = useRouter();
   const {
+    receipts: allReceipts,
     fetchReceipts,
     getCategoryBreakdown,
     getReceiptsForMonth,
@@ -92,8 +93,8 @@ export default function ReceiptScreen() {
   const isCurrentMonth = selectedMonth === thisMonth;
 
   useEffect(() => {
-    fetchReceipts(currentMonth);
-  }, [currentMonth, fetchReceipts]);
+    fetchReceipts();
+  }, [fetchReceipts]);
 
   const receipts = getReceiptsForMonth(currentMonth);
   const monthlyTotal = receipts.reduce(
@@ -105,7 +106,7 @@ export default function ReceiptScreen() {
     ? Math.round((monthlyTotal / daysPassed) * daysInMonth)
     : monthlyTotal;
 
-  const sortedReceipts = [...receipts].sort((a, b) =>
+  const sortedReceipts = [...allReceipts].sort((a, b) =>
     b.date.localeCompare(a.date),
   );
   const displayedReceipts = showAllReceipts
@@ -310,8 +311,8 @@ export default function ReceiptScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>최근 영수증</Text>
             <View style={styles.sectionHeaderRight}>
-              <Text style={styles.sectionCount}>{receipts.length}건</Text>
-              {receipts.length > 5 ? (
+              <Text style={styles.sectionCount}>{allReceipts.length}건</Text>
+              {allReceipts.length > 5 ? (
                 <TouchableOpacity
                   style={styles.viewAllBtn}
                   onPress={() => setShowAllReceipts((previous) => !previous)}
@@ -328,14 +329,14 @@ export default function ReceiptScreen() {
             <View style={styles.empty}>
               <ActivityIndicator size="large" color={Colors.primary} />
             </View>
-          ) : receipts.length === 0 ? (
+          ) : allReceipts.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons
                 name="receipt-outline"
                 size={42}
                 color={Colors.gray300}
               />
-              <Text style={styles.emptyText}>이번 달 영수증이 없습니다</Text>
+              <Text style={styles.emptyText}>등록된 영수증이 없습니다</Text>
             </View>
           ) : (
             <View style={styles.receiptList}>
