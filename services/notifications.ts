@@ -90,7 +90,7 @@ export async function rescheduleAllNotifications(
 // 즉시 알림 (테스트용)
 export async function sendTestNotification() {
   await Notifications.scheduleNotificationAsync({
-    content: { title: '테스트 알림 🔔', body: '알림이 정상 작동합니다!', sound: true },
+    content: { title: '테스트 알림', body: '알림이 정상 작동합니다!', sound: true },
     trigger: null,
   });
 }
@@ -185,7 +185,7 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 export type NotificationStatus = "all" | "unread" | "read";
 
 export type ServerNotification = {
-  alert_id: string;
+  notificationId: string;
   document_id: string;
   title: string;
   body: string;
@@ -221,7 +221,9 @@ async function request<T>(
     throw new Error(`API 요청 실패: ${response.status} ${errorText}`);
   }
 
-  const json = await response.json();
+  const text = await response.text();
+  if (!text) return undefined as T;
+  const json = JSON.parse(text);
   return (json?.data ?? json) as T;
 }
 

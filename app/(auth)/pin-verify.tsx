@@ -19,13 +19,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
+function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>, pin: string) {
   useAuthStore.setState({
     user,
     token: "session",
     isAuthenticated: true,
     isPinSet: true,
     isPinVerified: true,
+    pin,
   });
 }
 
@@ -53,7 +54,7 @@ export default function PinVerifyScreen() {
       useAuthStore.setState({ pin: value, isPinSet: true });
 
       const user = await getCurrentUser();
-      completeLogin(user);
+      completeLogin(user, value);
       router.replace("/(tabs)");
     } catch (err: unknown) {
       const nextAttempts = attempts + 1;

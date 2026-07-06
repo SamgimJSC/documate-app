@@ -35,7 +35,7 @@ export default function BiometricSetupScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.iconWrap}>
-          <Text style={styles.icon}>🧬</Text>
+          <Ionicons name="finger-print-outline" size={48} color={Colors.primary} />
         </View>
         <Text style={styles.title}>생체인증 설정</Text>
         <Text style={styles.desc}>

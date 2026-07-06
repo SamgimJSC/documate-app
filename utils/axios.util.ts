@@ -101,15 +101,15 @@ axiosInstance.interceptors.response.use(
     return response.data;
   },
   async (error) => {
+    const url = error.config?.url ?? '(unknown)';
+    const method = (error.config?.method ?? 'GET').toUpperCase();
     if (error.response) {
       const status = error.response.status;
-      if (status === 500) {
-        console.error("서버 내부 에러가 발생했습니다.");
-      }
+      console.error(`[axios] ${method} ${url} → ${status}`, error.response.data);
     } else if (error.request) {
-      console.error("네트워크 연결이 원활하지 않습니다.");
+      console.error(`[axios] ${method} ${url} → 네트워크 연결이 원활하지 않습니다.`);
     } else {
-      console.error("에러 발생:", error.message);
+      console.error(`[axios] ${method} ${url} → 에러:`, error.message);
     }
     return Promise.reject(error);
   },

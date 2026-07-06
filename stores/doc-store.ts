@@ -7,8 +7,83 @@ import {
   getDocumentCategories,
   getDocuments,
   updateDocumentFavorite,
+  updateDocumentSecured,
 } from '@/services/document';
 import { create } from 'zustand';
+
+const CATEGORY_NAME_NORM: Record<string, DocumentCategory> = {
+  '계약서': '계약서',
+  '보증서': '보증서',
+  '보증서/A/S': '보증서',
+  '처방전': '처방전',
+  '병원/약국': '처방전',
+  '보험서류': '보험서류',
+  '영수증': '영수증',
+  '기타': '기타',
+};
+
+function normalizeCategory(name: string | undefined): DocumentCategory {
+  if (!name) return '기타';
+  return CATEGORY_NAME_NORM[name] ?? '기타';
+}
+
+// LLM이 뱉는 한국어·snake_case 키를 앱 camelCase 키로 변환
+const EXTRACTED_KEY_MAP: Record<string, string> = {
+  // contractDate
+  '계약일': 'contractDate', '계약시작일': 'contractDate', '계약 시작일': 'contractDate',
+  'contract_date': 'contractDate',
+  // expiryDate
+  '만료일': 'expiryDate', '유효기간': 'expiryDate', '계약종료일': 'expiryDate',
+  '계약 종료일': 'expiryDate', 'expiry_date': 'expiryDate',
+  // renewalDate
+  '갱신일': 'renewalDate', 'renewal_date': 'renewalDate',
+  // parties
+  '계약자': 'parties', '당사자': 'parties', '관련자': 'parties', '계약당사자': 'parties',
+  // productName
+  '제품명': 'productName', '제품': 'productName', 'product_name': 'productName',
+  // purchaseDate
+  '구매일': 'purchaseDate', '구입일': 'purchaseDate', 'purchase_date': 'purchaseDate',
+  // warrantyPeriod
+  '보증기간': 'warrantyPeriod', '보증 기간': 'warrantyPeriod', 'warranty_period': 'warrantyPeriod',
+  // repairDate
+  '수리일': 'repairDate', '수리날짜': 'repairDate', 'repair_date': 'repairDate',
+  // hospitalName
+  '병원명': 'hospitalName', '병원': 'hospitalName', '약국명': 'hospitalName',
+  '병원/약국명': 'hospitalName', 'hospital_name': 'hospitalName',
+  // visitDate
+  '진료일': 'visitDate', '방문일': 'visitDate', '진료날짜': 'visitDate', 'visit_date': 'visitDate',
+  // amount
+  '금액': 'amount', '비용': 'amount', '보험금': 'amount', '총액': 'amount', '결제금액': 'amount',
+  '합계': 'amount', '결제액': 'amount', '지불금액': 'amount',
+  // medication
+  '약품명': 'medication', '처방약': 'medication', '약품': 'medication', '약': 'medication',
+  // insurer
+  '보험사': 'insurer', '보험회사': 'insurer',
+  // date
+  '날짜': 'date', '일자': 'date', '거래일': 'date', '주문일': 'date', '발행일': 'date',
+  // parties (계약자/발행처/상호 등)
+  '발행처': 'parties', '상호': 'parties', '업체명': 'parties', '가게명': 'parties',
+  '매장명': 'parties', '판매자': 'parties', '공급자': 'parties',
+  // notes
+  '메모': 'notes', '비고': 'notes', '기타사항': 'notes',
+};
+
+function normalizeExtractedData(raw: Record<string, unknown>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === '_meta') continue;
+    const mappedKey = EXTRACTED_KEY_MAP[k] ?? EXTRACTED_KEY_MAP[k.toLowerCase()] ?? k;
+    let strVal: string | null = null;
+    if (typeof v === 'string' && v) strVal = v;
+    else if (typeof v === 'number') strVal = String(v);
+    else if (Array.isArray(v)) {
+      const strs = v.filter((x): x is string => typeof x === 'string');
+      if (strs.length) strVal = strs.join(', ');
+    }
+    if (strVal && !result[mappedKey]) result[mappedKey] = strVal;
+  }
+  return result;
+}
 
 function toDocument(item: DocumentItem): Document {
   const today = new Date().toISOString().split("T")[0];
@@ -23,28 +98,17 @@ function toDocument(item: DocumentItem): Document {
     else if (daysLeft <= 30) status = "expiring_soon";
   }
 
-  // 서버 extractedData(자유 형식)에서 화면이 쓰는 필드만 안전하게 꺼냄
-  // TODO [서버 연동 시 확인]: 실제 CLOVA OCR 응답의 키 이름을 보고 매핑 조정 필요.
-  //   서버가 date/amount/parties 외 다른 키(예: issue_date, total_amount)로 줄 수 있음.
   const raw = (item.extractedData ?? {}) as Record<string, unknown>;
-  const asString = (v: unknown): string | undefined =>
-    typeof v === 'string' ? v : typeof v === 'number' ? String(v) : undefined;
-  const asStringArray = (v: unknown): string[] | undefined =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
-
-  const extractedData = {
-    date: asString(raw.date),
-    amount: asString(raw.amount),
-    parties: asStringArray(raw.parties),
-    // notes는 추출데이터에 있으면 그걸, 없으면 OCR 원문(ocrText)을 폴백으로
-    notes: asString(raw.notes) ?? (typeof item.ocrText === 'string' ? item.ocrText : undefined),
-  };
+  const extractedData = normalizeExtractedData(raw);
+  if (!extractedData.notes && typeof item.ocrText === 'string' && item.ocrText) {
+    extractedData.notes = item.ocrText;
+  }
 
   return {
     id: item.documentId,
     categoryId: item.categoryId ?? undefined,
     title: item.title,
-    category: (item.category?.name ?? "기타") as DocumentCategory,
+    category: normalizeCategory(item.category?.name),
     uploadedAt: item.createdAt?.split("T")[0] ?? today,
     expiryDate: expiry,
     imageUri: item.fileUrl,
@@ -74,7 +138,7 @@ interface DocState {
   searchQuery: string;
   selectedCategory: string | null;
   isLoading: boolean;
-  fetchDocuments: () => Promise<void>;
+  fetchDocuments: (silent?: boolean) => Promise<void>;
   fetchCategories: () => Promise<void>;
   addDocument: (doc: Document) => void;
   setDocument: (docs: Document[]) => void;
@@ -98,19 +162,25 @@ export const useDocStore = create<DocState>()((set, get) => ({
   selectedCategory: null,
   isLoading: false,
 
-  fetchDocuments: async () => {
-    set({ isLoading: true });
+  fetchDocuments: async (silent = false) => {
+    if (!silent) set({ isLoading: true });
     try {
       const result = await getDocuments({
         limit: 100,
         sort: "createdAt",
         order: "DESC",
       });
-      set({ documents: result.items.map(toDocument) });
+      // set((state) => ...) 형태로 호출해야 await 사이에 발생한 toggleSecured 등의 변경이 보존됨
+      set((state) => ({
+        documents: result.items.map((item) => {
+          const local = state.documents.find((d) => d.id === item.documentId);
+          return { ...toDocument(item), isSecured: local?.isSecured ?? false };
+        }),
+      }));
     } catch (error) {
       console.error("문서 목록 조회 실패:", error);
     } finally {
-      set({ isLoading: false });
+      if (!silent) set({ isLoading: false });
     }
   },
 
@@ -140,6 +210,7 @@ export const useDocStore = create<DocState>()((set, get) => ({
       } catch (error) {
         set({ documents: previousDocuments });
         console.error("문서 삭제 API 실패:", error);
+        throw error; // 호출부에서 삭제 실패를 감지하도록 재throw
       }
     }
   },
@@ -174,13 +245,17 @@ export const useDocStore = create<DocState>()((set, get) => ({
   },
 
   toggleSecured: (id) => {
+    const doc = get().documents.find((d) => d.id === id);
+    if (!doc) return;
+    const next = !doc.isSecured;
     set((state) => ({
       documents: state.documents.map((document) =>
-        document.id === id
-          ? { ...document, isSecured: !document.isSecured }
-          : document,
+        document.id === id ? { ...document, isSecured: next } : document,
       ),
     }));
+    if (!isLocalDraft(id)) {
+      updateDocumentSecured(id, next).catch(() => {});
+    }
   },
 
   setSearchQuery: (q) => set({ searchQuery: q }),
