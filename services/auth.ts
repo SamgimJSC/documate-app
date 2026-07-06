@@ -1,6 +1,6 @@
 import axiosInstance from "@/utils/axios.util";
-import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
+import { signBiometricChallenge } from "@/services/rnb";
 
 export type BiometricType = "FACE" | "FINGER";
 
@@ -22,6 +22,7 @@ function unwrapData<T>(payload: T | { data?: T }): T {
 
 export const PIN_LOGIN_EMAIL_KEY = "pinLoginEmail";
 export const BIOMETRIC_ENABLED_KEY = "biometricEnabled";
+export const BIOMETRIC_LOGIN_EMAIL_KEY = "biometricLoginEmail";
 
 export async function rememberPinLoginEmail(email: string): Promise<void> {
   const normalizedEmail = email.trim();
@@ -103,41 +104,55 @@ export async function changePassword(
   });
 }
 
-export async function getAvailableBiometricType(): Promise<BiometricType> {
-  const [hasHardware, isEnrolled, types] = await Promise.all([
-    LocalAuthentication.hasHardwareAsync(),
-    LocalAuthentication.isEnrolledAsync(),
-    LocalAuthentication.supportedAuthenticationTypesAsync(),
-  ]);
-
-  if (!hasHardware || !isEnrolled) {
-    throw new Error("BIOMETRIC_NOT_AVAILABLE");
-  }
-
-  if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-    return "FACE";
-  }
-  if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-    return "FINGER";
-  }
-  throw new Error("BIOMETRIC_TYPE_NOT_SUPPORTED");
-}
-
 export async function setBiometricLoginEnabled(
   enabled: boolean,
   biometricType?: BiometricType,
+  publicKey?: string,
 ) {
-  if (enabled && !biometricType) {
-    throw new Error("BIOMETRIC_TYPE_REQUIRED");
+  if (enabled && (!biometricType || !publicKey)) {
+    throw new Error("BIOMETRIC_REGISTRATION_REQUIRED");
   }
 
   const response = await axiosInstance.post("/auth/biometric/enable", {
     enabled,
-    ...(enabled ? { biometric_type: biometricType } : {}),
+    ...(enabled
+      ? { biometric_type: biometricType, public_key: publicKey }
+      : {}),
   });
   return unwrapData<{
     success?: boolean;
     is_biometric_enabled?: boolean;
     biometric_type?: BiometricType | null;
   }>(response);
+}
+
+export async function rememberBiometricLoginEmail(email: string): Promise<void> {
+  await SecureStore.setItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY, email.trim());
+}
+
+export async function biometricChallenge(email: string): Promise<{
+  challenge: string;
+  challengeId: string;
+}> {
+  const response = await axiosInstance.post("/auth/biometric/challenge", {
+    email,
+  });
+  const data = unwrapData<Record<string, unknown>>(response);
+  const challenge = String(data.challenge ?? "");
+  const challengeId = String(data.challenge_id ?? data.challengeId ?? "");
+  if (!challenge || !challengeId) throw new Error("INVALID_CHALLENGE_RESPONSE");
+  return { challenge, challengeId };
+}
+
+export async function loginWithBiometricSignature(): Promise<AuthUser> {
+  const email = await SecureStore.getItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY);
+  if (!email) throw new Error("BIOMETRIC_EMAIL_NOT_FOUND");
+
+  const { challenge, challengeId } = await biometricChallenge(email);
+  const signature = await signBiometricChallenge(challenge);
+  await axiosInstance.post("/auth/biometric/verify", {
+    challenge_id: challengeId,
+    signature,
+  });
+  return getCurrentUser();
 }

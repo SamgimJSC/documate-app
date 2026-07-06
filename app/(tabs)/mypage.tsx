@@ -1,7 +1,6 @@
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
-import { getAvailableBiometricType } from "@/services/auth";
 import {
   cancelAllNotifications,
   getNotificationSettings,
@@ -15,7 +14,6 @@ import { analyzePassword, validatePassword } from "@/utils/validation";
 import { calculateStorageUsedGb, formatStorageUsed } from "@/utils/storage-usage";
 import { Ionicons } from "@expo/vector-icons";
 import { isAxiosError } from "axios";
-import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -327,26 +325,42 @@ export default function MyPageScreen() {
     setBiometricUpdating(true);
     try {
       if (value) {
-        const biometricType = await getAvailableBiometricType();
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "생체인증을 활성화합니다",
-          cancelLabel: "취소",
-          disableDeviceFallback: true,
-        });
-        if (!result.success) return;
-        await enableBiometric(biometricType);
+        await enableBiometric();
       } else {
         await disableBiometric();
       }
+      Alert.alert(
+        "생체인증",
+        value
+          ? "생체인증이 활성화되었습니다."
+          : "생체인증이 해제되었습니다.",
+        [
+          {
+            text: "확인",
+            onPress: () => router.replace("/(tabs)/mypage"),
+          },
+        ],
+      );
     } catch (error: unknown) {
       const status = isAxiosError(error) ? error.response?.status : undefined;
       const code = isAxiosError(error)
         ? error.response?.data?.code ?? error.response?.data?.errorCode
         : undefined;
-      console.error("생체인증 설정 변경 실패:", { status, code });
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error("생체인증 설정 변경 실패:", {
+        status,
+        code,
+        message: errorMessage,
+        response: isAxiosError(error) ? error.response?.data : undefined,
+      });
       const message =
-        error instanceof Error && error.message === "BIOMETRIC_NOT_AVAILABLE"
+        errorMessage === "BIOMETRIC_NATIVE_MODULE_UNAVAILABLE"
+          ? "생체인증 모듈이 현재 앱에 포함되지 않았습니다. 최신 개발 빌드를 다시 설치해주세요."
+          : errorMessage === "BIOMETRIC_NOT_AVAILABLE"
           ? "기기에 등록된 생체정보가 없습니다."
+          : errorMessage === "BIOMETRIC_CANCELLED"
+            ? "생체인증이 취소되었습니다."
           : status === 401 || code === "INVALID_TOKEN"
             ? "로그인 세션이 만료되었습니다. 이메일로 다시 로그인해주세요."
             : "생체인증 설정을 변경하지 못했습니다.";

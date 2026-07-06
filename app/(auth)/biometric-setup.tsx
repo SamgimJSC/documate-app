@@ -1,35 +1,29 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Alert, View, Text, StyleSheet } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { Button } from '@/components/common/button';
 import { Colors, Spacing, Radius } from '@/constants/theme';
-import { getAvailableBiometricType } from '@/services/auth';
 import { useAuthStore } from '@/stores/auth-store';
 
 export default function BiometricSetupScreen() {
   const router = useRouter();
+  const { email } = useLocalSearchParams<{ email?: string }>();
   const enableBiometric = useAuthStore((s) => s.enableBiometric);
   const [loading, setLoading] = useState(false);
 
   const handleEnable = async () => {
     setLoading(true);
     try {
-      const biometricType = await getAvailableBiometricType();
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: '생체인증을 등록합니다',
-        cancelLabel: '취소',
-        disableDeviceFallback: true,
-      });
-      if (result.success) {
-        await enableBiometric(biometricType);
-      }
+      await enableBiometric(email);
+      router.replace('/(tabs)');
     } catch {
-      // ignore
+      Alert.alert(
+        '생체인증 등록 실패',
+        '생체인증 키를 등록하지 못했습니다. 잠시 후 다시 시도해주세요.',
+      );
     } finally {
       setLoading(false);
-      router.replace('/(tabs)');
     }
   };
 

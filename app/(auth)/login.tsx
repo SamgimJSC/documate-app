@@ -4,13 +4,13 @@ import { Colors, Radius, Spacing } from "@/constants/theme";
 import {
   BIOMETRIC_ENABLED_KEY,
   getCurrentUser,
+  loginWithBiometricSignature,
   rememberPinLoginEmail,
 } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
 import { Ionicons } from "@expo/vector-icons";
 import { isAxiosError } from "axios";
-import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import { useRouter } from "expo-router";
 
@@ -109,24 +109,16 @@ export default function LoginScreen() {
     setError("");
     setLoading(true);
     try {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "DocuMate에 접근합니다",
-        cancelLabel: "취소",
-        disableDeviceFallback: true,
+      const user = await loginWithBiometricSignature();
+      useAuthStore.setState({
+        user,
+        token: "session",
+        isAuthenticated: true,
+        isPinSet: true,
+        isPinVerified: true,
+        isBiometricEnabled: true,
       });
-
-      if (result.success) {
-        const user = await getCurrentUser();
-        useAuthStore.setState({
-          user,
-          token: "session",
-          isAuthenticated: true,
-          isPinSet: true,
-          isPinVerified: true,
-          isBiometricEnabled: true,
-        });
-        router.replace("/(tabs)");
-      }
+      router.replace("/(tabs)");
     } catch (err: unknown) {
       if (isAxiosError(err) && err.response?.status === 401) {
         setError("로그인 정보가 만료되었습니다. 이메일로 다시 로그인해주세요.");
@@ -281,5 +273,5 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
   altButton: { flex: 1 },
-  altButtonText: { fontSize: 14 },
+  altButtonText: { width: "100%", fontSize: 14, textAlign: "center" },
 });

@@ -2,12 +2,12 @@ import { PinPad } from "@/components/common/pin-pad";
 import { Colors, Radius, Spacing } from "@/constants/theme";
 import {
   getCurrentUser,
+  loginWithBiometricSignature,
   loginWithPin,
 } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { Ionicons } from "@expo/vector-icons";
 import { isAxiosError } from "axios";
-import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -91,14 +91,7 @@ export default function PinVerifyScreen() {
     setError("");
     setLoading(true);
     try {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "DocuMate에 로그인합니다",
-        cancelLabel: "취소",
-        disableDeviceFallback: true,
-      });
-      if (!result.success) return;
-
-      const user = await getCurrentUser();
+      const user = await loginWithBiometricSignature();
       completeLogin(user);
       router.replace("/(tabs)");
     } catch {

@@ -1,12 +1,18 @@
 import {
   BIOMETRIC_ENABLED_KEY,
+  BIOMETRIC_LOGIN_EMAIL_KEY,
   PIN_LOGIN_EMAIL_KEY,
-  type BiometricType,
   changePassword,
+  getCurrentUser,
+  rememberBiometricLoginEmail,
   setBiometricLoginEnabled,
   updateNickname as updateNicknameRequest,
   verifyCurrentPassword,
 } from "@/services/auth";
+import {
+  createBiometricKeyPair,
+  deleteBiometricKeys,
+} from "@/services/rnb";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
@@ -46,7 +52,7 @@ interface AuthState {
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
   setPinVerified: (verified: boolean) => void;
-  enableBiometric: (biometricType: BiometricType) => Promise<void>;
+  enableBiometric: (email?: string) => Promise<void>;
   disableBiometric: () => Promise<void>;
   updateNickname: (nickname: string) => Promise<void>;
   upgradeToPro: () => void;
@@ -114,8 +120,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       SecureStore.deleteItemAsync("accessToken"),
       SecureStore.deleteItemAsync("refreshToken"),
       SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY),
       SecureStore.deleteItemAsync(PIN_LOGIN_EMAIL_KEY),
     ]);
+    void deleteBiometricKeys();
     set({
       user: null,
       token: null,
@@ -179,15 +187,32 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   setPinVerified: (verified) => set({ isPinVerified: verified }),
 
-  enableBiometric: async (biometricType) => {
-    await setBiometricLoginEnabled(true, biometricType);
-    await SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, "true");
+  enableBiometric: async (requestedEmail) => {
+    const email =
+      requestedEmail || get().user?.email || (await getCurrentUser()).email;
+    if (!email) throw new Error("BIOMETRIC_EMAIL_NOT_FOUND");
+
+    const { biometricType, publicKey } = await createBiometricKeyPair();
+    try {
+      await setBiometricLoginEnabled(true, biometricType, publicKey);
+    } catch (error) {
+      await deleteBiometricKeys();
+      throw error;
+    }
+    await Promise.all([
+      SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, "true"),
+      rememberBiometricLoginEmail(email),
+    ]);
     set({ isBiometricEnabled: true });
   },
 
   disableBiometric: async () => {
     await setBiometricLoginEnabled(false);
-    await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
+    await Promise.all([
+      SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY),
+      deleteBiometricKeys(),
+    ]);
     set({ isBiometricEnabled: false });
   },
 
