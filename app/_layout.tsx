@@ -202,6 +202,9 @@ export default function RootLayout() {
         />
         <Stack.Screen name="notification" options={{ headerShown: false }} />
         <Stack.Screen name="pro-promotion" options={{ headerShown: false }} />
+        <Stack.Screen name="card-recommendation" options={{ headerShown: false }} />
+        <Stack.Screen name="card-detail/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="processing-center" options={{ headerShown: false }} />
       </Stack>
       <NotificationBanner />
       <Toast />

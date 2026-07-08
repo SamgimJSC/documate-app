@@ -383,6 +383,32 @@ export default function ReceiptScreen() {
             </View>
           )}
         </View>
+
+        {/* 카드 추천 배너 */}
+        <TouchableOpacity
+          style={styles.cardRecommendBanner}
+          onPress={() => router.push('/card-recommendation' as any)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.cardRecommendLeft}>
+            <Ionicons name="card-outline" size={22} color={Colors.pro} />
+            <View style={styles.cardRecommendText}>
+              <View style={styles.cardRecommendTitleRow}>
+                <Text style={styles.cardRecommendTitle}>카드 추천 보기</Text>
+                <View style={styles.cardRecommendProBadge}>
+                  <Text style={styles.cardRecommendProText}>PRO</Text>
+                </View>
+              </View>
+              <Text style={styles.cardRecommendSub}>주요 소비 카테고리를 기반으로 혜택이 높은 카드를 확인할 수 있습니다.</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.cardRecommendBtn}
+            onPress={() => router.push('/card-recommendation' as any)}
+          >
+            <Text style={styles.cardRecommendBtnText}>추천 보기</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -584,4 +610,37 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", padding: Spacing.xl, gap: Spacing.sm },
   emptyCompact: { paddingVertical: Spacing.md },
   emptyText: { fontSize: 14, color: Colors.gray400, textAlign: "center" },
+
+  // 카드 추천 배너
+  cardRecommendBanner: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.proLight,
+    ...cardShadow,
+  },
+  cardRecommendLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: Spacing.sm },
+  cardRecommendText: { flex: 1, gap: 2 },
+  cardRecommendTitleRow: { flexDirection: "row", alignItems: "center", gap: Spacing.xs },
+  cardRecommendTitle: { fontSize: 14, fontWeight: "700", color: Colors.gray900 },
+  cardRecommendProBadge: {
+    backgroundColor: Colors.pro,
+    borderRadius: Radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  cardRecommendProText: { fontSize: 10, fontWeight: "800", color: Colors.white },
+  cardRecommendSub: { fontSize: 12, color: Colors.gray500, lineHeight: 16 },
+  cardRecommendBtn: {
+    backgroundColor: Colors.pro,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  cardRecommendBtnText: { fontSize: 13, fontWeight: "700", color: Colors.white },
 });
