@@ -2,12 +2,14 @@ import {
   BIOMETRIC_ENABLED_KEY,
   BIOMETRIC_LOGIN_EMAIL_KEY,
   PIN_LOGIN_EMAIL_KEY,
+  deleteUser,
   getCurrentUser,
   logoutSession,
   rememberBiometricLoginEmail,
   setBiometricLoginEnabled,
   updateNickname as updateNicknameRequest,
 } from "@/services/auth";
+import { unregisterFcmTokenFromServer } from "@/services/firebaseMessaging";
 import {
   createBiometricKeyPair,
   deleteBiometricKeys,
@@ -43,6 +45,7 @@ interface AuthState {
   loginWithPin: (pinNumber: string) => Promise<boolean>;
   logout: () => Promise<void>;
   forgetSavedLogin: () => void;
+  deleteAccount: () => Promise<void>;
   register: (
     email: string,
     password: string,
@@ -109,6 +112,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   logout: async () => {
     const keepBiometricLogin = get().isBiometricEnabled;
     try {
+      await unregisterFcmTokenFromServer();
+    } catch (error) {
+      console.warn("Device token unregister failed; continuing logout.", error);
+    }
+    try {
       await logoutSession();
     } catch (error) {
       console.warn("Server logout failed; clearing local session.", error);
@@ -148,6 +156,16 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       pin: "",
       isBiometricEnabled: false,
     });
+  },
+
+  deleteAccount: async () => {
+    const userId = get().user?.id || (await getCurrentUser()).id;
+    if (!userId) throw new Error("USER_ID_NOT_FOUND");
+    await unregisterFcmTokenFromServer().catch((error) => {
+      console.warn("Device token unregister failed; continuing withdrawal.", error);
+    });
+    await deleteUser(userId);
+    get().forgetSavedLogin();
   },
 
   register: async (_email, _password, _nickname) => {},

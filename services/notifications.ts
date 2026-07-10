@@ -198,6 +198,16 @@ export type ServerNotification = {
   created_at: string;
 };
 
+export type CreateNotificationBody = {
+  document_id?: string;
+  title: string;
+  body: string;
+  notify_date?: string;
+  channel_email?: boolean;
+  channel_app_push?: boolean;
+  channel_web_push?: boolean;
+};
+
 
 async function request<T>(
   path: string,
@@ -259,6 +269,28 @@ export async function markServerNotificationRead(alertId: string) {
 export async function markAllServerNotificationsRead() {
   return request<{ success: boolean }>("/notifications/read-all", {
     method: "PATCH",
+  });
+}
+
+// POST /notifications
+export async function createServerNotification(body: CreateNotificationBody) {
+  return request<ServerNotification>("/notifications", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// DELETE /notifications/:id
+export async function deleteServerNotification(notificationId: string) {
+  return request<{ success: boolean }>(`/notifications/${notificationId}`, {
+    method: "DELETE",
+  });
+}
+
+// POST /notifications/trigger-scheduler
+export async function triggerNotificationScheduler() {
+  return request<{ success: boolean }>("/notifications/trigger-scheduler", {
+    method: "POST",
   });
 }
 

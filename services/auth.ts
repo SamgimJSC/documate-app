@@ -89,6 +89,10 @@ export async function updateNickname(
   return String(data.nickname ?? nickname);
 }
 
+export async function deleteUser(userId: string): Promise<void> {
+  await axiosInstance.delete(`/users/${userId}`);
+}
+
 export async function logoutSession(): Promise<void> {
   await axiosInstance.post("/auth/logout");
 }

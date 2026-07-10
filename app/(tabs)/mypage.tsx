@@ -109,7 +109,7 @@ export default function MyPageScreen() {
   const {
     user,
     logout,
-    forgetSavedLogin,
+    deleteAccount,
     isBiometricEnabled,
     enableBiometric,
     disableBiometric,
@@ -292,7 +292,16 @@ export default function MyPageScreen() {
       "탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠습니까?",
       [
         { text: "취소", style: "cancel" },
-        { text: "탈퇴", style: "destructive", onPress: forgetSavedLogin },
+        {
+          text: "탈퇴",
+          style: "destructive",
+          onPress: () => {
+            deleteAccount().catch((error) => {
+              console.log("회원탈퇴 실패:", error);
+              Alert.alert("회원탈퇴", "탈퇴 처리에 실패했습니다.");
+            });
+          },
+        },
       ],
     );
   };

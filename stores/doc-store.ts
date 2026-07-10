@@ -146,7 +146,7 @@ function toDocument(item: DocumentItem): Document {
     fileType: item.fileType,
     tags: item.documentTags?.map((docTag) => docTag.tag.name) ?? [],
     isFavorite: item.isFavorite ?? false,
-    isSecured: false,
+    isSecured: item.isSecured ?? false,
     issueDate: item.issueDate ?? undefined,
     renewalDate: item.renewalDate ?? undefined,
     documentTags:
@@ -221,8 +221,9 @@ export const useDocStore = create<DocState>()((set, get) => ({
       if (generation === requestGeneration) {
         set((state) => ({
           documents: result.items.map((item) => {
+            const serverDoc = toDocument(item);
             const local = state.documents.find((doc) => doc.id === item.documentId);
-            return { ...toDocument(item), isSecured: local?.isSecured ?? false };
+            return { ...serverDoc, isSecured: serverDoc.isSecured ?? local?.isSecured ?? false };
           }),
         }));
       }

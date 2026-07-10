@@ -4,6 +4,8 @@ const DEMO_MODE = false;
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   AiStatusResponse,
+  deleteTempDocument,
+  deleteTempFile,
   pollUntilDone,
   requestAiAnalysis,
   startUpload,
@@ -97,6 +99,36 @@ export default function UploadProgressScreen() {
 
   const updateItem = (index: number, patch: Partial<FileItem>) =>
     setItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+
+  const cleanupUploadedTempDocuments = async () => {
+    const ids = items
+      .map((item) => item.tempDocumentId)
+      .filter((id): id is string => !!id);
+    await Promise.allSettled([...new Set(ids)].map((id) => deleteTempDocument(id)));
+  };
+
+  const handleClose = () => {
+    if (phase === 'uploading' || phase === 'ready' || phase === 'confirming') {
+      void cleanupUploadedTempDocuments();
+    }
+    router.back();
+  };
+
+  const handleDeleteUploadedFile = async (index: number) => {
+    const item = items[index];
+    const fileId = item.uploadedFiles?.[0]?.id;
+    if (!item.tempDocumentId || !fileId) return;
+
+    const previous = items;
+    setItems((prev) => prev.filter((_, i) => i !== index));
+    try {
+      await deleteTempFile(item.tempDocumentId, fileId);
+      await deleteTempDocument(item.tempDocumentId).catch(() => undefined);
+    } catch (e) {
+      console.log('임시 업로드 파일 삭제 실패:', e);
+      setItems(previous);
+    }
+  };
 
   // ─── 업로드 실패 재시도 ───────────────────────────────────────────────────
   const retryUpload = async (uri: string, index: number) => {
@@ -253,7 +285,7 @@ export default function UploadProgressScreen() {
       {/* 헤더 */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleClose}
           style={styles.headerBackBtn}
           hitSlop={8}
         >
@@ -369,6 +401,17 @@ export default function UploadProgressScreen() {
                 </View>
               )}
             </View>
+            {item.uploadStatus === 'uploaded' && phase !== 'started' && phase !== 'analyzing' ? (
+              <TouchableOpacity
+                onPress={() => handleDeleteUploadedFile(idx)}
+                style={styles.fileDeleteBtn}
+                hitSlop={8}
+              >
+                <Ionicons name="trash-outline" size={16} color={Colors.error} />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.fileDeleteSpacer} />
+            )}
           </View>
         ))}
 
@@ -579,6 +622,13 @@ const styles = StyleSheet.create({
   fileType: { fontSize: 11, color: Colors.gray400, marginTop: 2 },
   fileSize: { fontSize: 12, color: Colors.gray500, width: 60, textAlign: 'right' },
   statusCell: { width: 92, alignItems: 'flex-end' },
+  fileDeleteBtn: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileDeleteSpacer: { width: 28, height: 28 },
   statusChip: {
     flexDirection: 'row',
     alignItems: 'center',

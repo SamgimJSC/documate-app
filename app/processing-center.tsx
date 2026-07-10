@@ -5,6 +5,7 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   AiStatus,
   AiStatusResponse,
+  getTempDocumentDetail,
   getTempDocumentList,
   getTempDocumentStatus,
   requestAiAnalysis,
@@ -187,8 +188,10 @@ export default function ProcessingCenterScreen() {
       )
     );
     try {
-      const list = await getTempDocumentList();
-      const found = list.find((it) => it.tempDocumentId === tempDocumentId);
+      const found = await getTempDocumentDetail(tempDocumentId).catch(async () => {
+        const list = await getTempDocumentList();
+        return list.find((it) => it.tempDocumentId === tempDocumentId);
+      });
       if (!found || found.files.length === 0) throw new Error('파일 정보를 찾을 수 없습니다.');
       await requestAiAnalysis(
         tempDocumentId,

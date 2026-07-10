@@ -1,4 +1,5 @@
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import { getDocumentAiStatus, unlockDocument } from '@/services/document';
 import { downloadDocumentPdf } from '@/services/download';
 import {
   DocumentAlert,
@@ -319,7 +320,7 @@ export default function DocumentDetailScreen() {
   const [fetching, setFetching] = useState(false);
   const { pin: storedPin, verifyPinWithServer } = useAuthStore();
   const hasFetchedRef = useRef(false);
-  const { documents, toggleFavorite, removeDocument, fetchDocuments, toggleSecured } = useDocStore();
+  const { documents, toggleFavorite, removeDocument, fetchDocuments, toggleSecured, updateDocument } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
   const [serverAlerts, setServerAlerts] = useState<DocumentAlert[]>([]);
@@ -344,6 +345,15 @@ export default function DocumentDetailScreen() {
       .then(setServerAlerts)
       .catch((e) => console.log('문서 알림 조회 실패:', e));
   }, [doc?.id]);
+
+  useEffect(() => {
+    if (!doc || doc.aiStatus === 'DONE' || doc.aiStatus === 'FAILED') return;
+    getDocumentAiStatus(doc.id)
+      .then((status) => {
+        updateDocument(doc.id, { aiStatus: status.aiStatus });
+      })
+      .catch((e) => console.log('문서 AI 상태 조회 실패:', e));
+  }, [doc?.id, doc?.aiStatus, updateDocument]);
 
   if (!doc) {
     if (fetching) {
@@ -427,7 +437,17 @@ export default function DocumentDetailScreen() {
     setPinModalError(false);
     if (next.length === 6) {
       setPinModalLoading(true);
-      const ok = storedPin ? next === storedPin : await verifyPinWithServer(next);
+      let ok = false;
+      if (pinModalPurpose === 'disable') {
+        try {
+          await unlockDocument(doc.id, next);
+          ok = true;
+        } catch {
+          ok = false;
+        }
+      } else {
+        ok = storedPin ? next === storedPin : await verifyPinWithServer(next);
+      }
       setPinModalLoading(false);
       if (ok) {
         toggleSecured(doc.id);
