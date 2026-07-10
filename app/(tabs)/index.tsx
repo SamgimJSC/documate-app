@@ -1,8 +1,10 @@
 import { Badge } from '@/components/common/badge';
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { getTempDocumentList } from '@/services/upload';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { useReceiptStore } from '@/stores/receipt-store';
+import { showToast } from '@/stores/toast-store';
 import { calculateStorageUsedGb, formatStorageUsed } from '@/utils/storage-usage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -61,6 +63,20 @@ export default function HomeScreen() {
     return diff;
   };
 
+  const handleProcessingCenter = async () => {
+    try {
+      const list = await getTempDocumentList();
+      const hasActive = list.some((d) => d.aiStatus === 'PENDING' || d.aiStatus === 'PROCESSING');
+      if (hasActive) {
+        router.push('/processing-center' as any);
+      } else {
+        showToast('처리 중인 문서가 없습니다.', 'info');
+      }
+    } catch {
+      router.push('/processing-center' as any);
+    }
+  };
+
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -69,14 +85,19 @@ export default function HomeScreen() {
           <Text style={styles.greeting}>안녕하세요, {user?.nickname ?? ''}님</Text>
           <Text style={styles.subGreeting}>오늘도 스마트하게 관리하세요</Text>
         </View>
-        <TouchableOpacity onPress={() => router.push('/notification' as any)} style={styles.notifBtn}>
-          <Ionicons name="notifications-outline" size={24} color={Colors.white} />
-          {expiringDocs.length > 0 && (
-            <View style={styles.notifBadge}>
-              <Text style={styles.notifCount}>{expiringDocs.length}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={handleProcessingCenter} style={styles.notifBtn}>
+            <Ionicons name="document-text-outline" size={24} color={Colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/notification' as any)} style={styles.notifBtn}>
+            <Ionicons name="notifications-outline" size={24} color={Colors.white} />
+            {expiringDocs.length > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifCount}>{expiringDocs.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -206,6 +227,7 @@ const styles = S.create({
   },
   greeting: { fontSize: 18, fontWeight: '700', color: Colors.white },
   subGreeting: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   notifBtn: { position: 'relative', padding: Spacing.xs },
   notifBadge: {
     position: 'absolute',
