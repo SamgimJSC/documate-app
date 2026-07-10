@@ -62,6 +62,12 @@ function getCategoryLabel(category: string) {
   return CATEGORY_LABELS[category] ?? category;
 }
 
+function offsetMonth(base: string, delta: number): string {
+  const [year, month] = base.split("-").map(Number);
+  const d = new Date(year, month - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function ReceiptScreen() {
   const router = useRouter();
   const {
@@ -74,8 +80,17 @@ export default function ReceiptScreen() {
   const [showAllReceipts, setShowAllReceipts] = useState(false);
 
   const today = new Date();
-  const currentMonth = today.toISOString().slice(0, 7);
+  const thisMonth = today.toISOString().slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState(thisMonth);
+  const currentMonth = selectedMonth;
   const daysInMonth = getDaysInMonth(currentMonth);
+
+  const handlePrevMonth = () => setSelectedMonth((m) => offsetMonth(m, -1));
+  const handleNextMonth = () => {
+    const next = offsetMonth(selectedMonth, 1);
+    if (next <= thisMonth) setSelectedMonth(next);
+  };
+  const isCurrentMonth = selectedMonth === thisMonth;
 
   useEffect(() => {
     fetchReceipts();
@@ -86,10 +101,10 @@ export default function ReceiptScreen() {
     (sum, receipt) => sum + Number(receipt.amount),
     0,
   );
-  const estimatedMonthlySpend =
-    today.getDate() > 0
-      ? Math.round((monthlyTotal / today.getDate()) * daysInMonth)
-      : monthlyTotal;
+  const daysPassed = isCurrentMonth ? today.getDate() : daysInMonth;
+  const estimatedMonthlySpend = daysPassed > 0
+    ? Math.round((monthlyTotal / daysPassed) * daysInMonth)
+    : monthlyTotal;
 
   const sortedReceipts = [...allReceipts].sort((a, b) =>
     b.date.localeCompare(a.date),
@@ -142,9 +157,20 @@ export default function ReceiptScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>소비 리포트</Text>
-          <Text style={styles.headerSubtitle}>{getMonthLabel(currentMonth)}</Text>
+        <Text style={styles.headerTitle}>소비 리포트</Text>
+        <View style={styles.monthNav}>
+          <TouchableOpacity onPress={handlePrevMonth} style={styles.monthNavBtn} hitSlop={8}>
+            <Ionicons name="chevron-back" size={18} color={Colors.gray600} />
+          </TouchableOpacity>
+          <Text style={styles.monthNavLabel}>{getMonthLabel(currentMonth)}</Text>
+          <TouchableOpacity
+            onPress={handleNextMonth}
+            style={[styles.monthNavBtn, isCurrentMonth && styles.monthNavBtnDisabled]}
+            disabled={isCurrentMonth}
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-forward" size={18} color={isCurrentMonth ? Colors.gray300 : Colors.gray600} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -178,13 +204,13 @@ export default function ReceiptScreen() {
 
           <View style={styles.summaryCard}>
             <View style={[styles.summaryIcon, styles.summaryIconOrange]}>
-              <Ionicons name="sparkles-outline" size={18} color={Colors.warning} />
+              <Ionicons name={isCurrentMonth ? "sparkles-outline" : "stats-chart-outline"} size={18} color={Colors.warning} />
             </View>
             <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
               {formatWon(estimatedMonthlySpend)}
             </Text>
-            <Text style={styles.summaryLabel}>예상 월 지출</Text>
-            <Text style={styles.summaryMeta}>AI 예측 · 신뢰도 {AI_CONFIDENCE}%</Text>
+            <Text style={styles.summaryLabel}>{isCurrentMonth ? "예상 월 지출" : "월 평균 지출"}</Text>
+            <Text style={styles.summaryMeta}>{isCurrentMonth ? `AI 예측 · 신뢰도 ${AI_CONFIDENCE}%` : "일평균 × 월일수"}</Text>
           </View>
         </View>
 
@@ -357,6 +383,32 @@ export default function ReceiptScreen() {
             </View>
           )}
         </View>
+
+        {/* 카드 추천 배너 */}
+        <TouchableOpacity
+          style={styles.cardRecommendBanner}
+          onPress={() => router.push('/card-recommendation' as any)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.cardRecommendLeft}>
+            <Ionicons name="card-outline" size={22} color={Colors.pro} />
+            <View style={styles.cardRecommendText}>
+              <View style={styles.cardRecommendTitleRow}>
+                <Text style={styles.cardRecommendTitle}>카드 추천 보기</Text>
+                <View style={styles.cardRecommendProBadge}>
+                  <Text style={styles.cardRecommendProText}>PRO</Text>
+                </View>
+              </View>
+              <Text style={styles.cardRecommendSub}>주요 소비 카테고리를 기반으로 혜택이 높은 카드를 확인할 수 있습니다.</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.cardRecommendBtn}
+            onPress={() => router.push('/card-recommendation' as any)}
+          >
+            <Text style={styles.cardRecommendBtnText}>추천 보기</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -375,12 +427,28 @@ const cardShadow = Platform.select({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
   },
   headerTitle: { fontSize: 22, fontWeight: "800", color: Colors.gray900 },
-  headerSubtitle: { marginTop: 2, fontSize: 13, color: Colors.gray500 },
+  monthNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.full,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+  },
+  monthNavLabel: { fontSize: 13, fontWeight: "600", color: Colors.gray700, minWidth: 72, textAlign: "center" },
+  monthNavBtn: { padding: 2 },
+  monthNavBtnDisabled: { opacity: 0.4 },
   scroll: { flex: 1 },
   scrollContent: {
     padding: Spacing.lg,
@@ -542,4 +610,37 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", padding: Spacing.xl, gap: Spacing.sm },
   emptyCompact: { paddingVertical: Spacing.md },
   emptyText: { fontSize: 14, color: Colors.gray400, textAlign: "center" },
+
+  // 카드 추천 배너
+  cardRecommendBanner: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.proLight,
+    ...cardShadow,
+  },
+  cardRecommendLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: Spacing.sm },
+  cardRecommendText: { flex: 1, gap: 2 },
+  cardRecommendTitleRow: { flexDirection: "row", alignItems: "center", gap: Spacing.xs },
+  cardRecommendTitle: { fontSize: 14, fontWeight: "700", color: Colors.gray900 },
+  cardRecommendProBadge: {
+    backgroundColor: Colors.pro,
+    borderRadius: Radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  cardRecommendProText: { fontSize: 10, fontWeight: "800", color: Colors.white },
+  cardRecommendSub: { fontSize: 12, color: Colors.gray500, lineHeight: 16 },
+  cardRecommendBtn: {
+    backgroundColor: Colors.pro,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  cardRecommendBtnText: { fontSize: 13, fontWeight: "700", color: Colors.white },
 });

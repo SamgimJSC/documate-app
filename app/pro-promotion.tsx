@@ -16,21 +16,21 @@ import { Button } from '@/components/common/button';
 import { useAuthStore } from '@/stores/auth-store';
 
 interface Feature {
-  icon: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   title: string;
   desc: string;
   proOnly: boolean;
 }
 
 const FEATURES: Feature[] = [
-  { icon: '📊', title: '월별 소비 리포트', desc: 'AI가 월별 지출을 자동으로 분석하고 리포트를 생성합니다', proOnly: true },
-  { icon: '🧠', title: 'AI 소비패턴 분석', desc: '반복 소비를 학습해 맞춤형 절약 제안을 제공합니다', proOnly: true },
-  { icon: '📅', title: '연간 지출 타임라인', desc: '1년치 소비 내역을 한눈에 확인할 수 있습니다', proOnly: true },
-  { icon: '💳', title: '카드 혜택 추천', desc: '소비 패턴에 맞는 최적의 카드를 추천해드립니다', proOnly: true },
-  { icon: '🔒', title: '이미지 마스킹', desc: '주민번호, 서명 등 민감 정보를 자동으로 가립니다', proOnly: true },
-  { icon: '📎', title: 'PDF 병합 다운로드', desc: '여러 문서를 하나의 PDF로 합쳐 다운로드할 수 있습니다', proOnly: true },
-  { icon: '💾', title: '50GB 스토리지', desc: 'Free 플랜 5GB에서 50GB로 용량이 대폭 확장됩니다', proOnly: true },
-  { icon: '🔔', title: '알림 & 업로드', desc: '문서 업로드, 만료일 알림, 검색 기능 (Free에도 제공)', proOnly: false },
+  { icon: 'bar-chart-outline',      title: '월별 소비 리포트',    desc: 'AI가 월별 지출을 자동으로 분석하고 리포트를 생성합니다', proOnly: true },
+  { icon: 'analytics-outline',      title: 'AI 소비패턴 분석',    desc: '반복 소비를 학습해 맞춤형 절약 제안을 제공합니다', proOnly: true },
+  { icon: 'calendar-outline',       title: '연간 지출 타임라인',   desc: '1년치 소비 내역을 한눈에 확인할 수 있습니다', proOnly: true },
+  { icon: 'card-outline',           title: '카드 혜택 추천',       desc: '소비 패턴에 맞는 최적의 카드를 추천해드립니다', proOnly: true },
+  { icon: 'eye-off-outline',        title: '이미지 마스킹',        desc: '주민번호, 서명 등 민감 정보를 자동으로 가립니다', proOnly: true },
+  { icon: 'attach-outline',         title: 'PDF 병합 다운로드',    desc: '여러 문서를 하나의 PDF로 합쳐 다운로드할 수 있습니다', proOnly: true },
+  { icon: 'cloud-outline',          title: '50GB 스토리지',        desc: 'Free 플랜 5GB에서 50GB로 용량이 대폭 확장됩니다', proOnly: true },
+  { icon: 'notifications-outline',  title: '알림 & 업로드',        desc: '문서 업로드, 만료일 알림, 검색 기능 (Free에도 제공)', proOnly: false },
 ];
 
 export default function ProPromotionScreen() {
@@ -52,7 +52,7 @@ export default function ProPromotionScreen() {
             await new Promise((r) => setTimeout(r, 1500));
             upgradeToPro();
             setLoading(false);
-            Alert.alert('업그레이드 완료!', 'Pro 플랜이 활성화되었습니다 🎉', [
+            Alert.alert('업그레이드 완료!', 'Pro 플랜이 활성화되었습니다.', [
               { text: '확인', onPress: () => router.back() },
             ]);
           },
@@ -85,7 +85,7 @@ export default function ProPromotionScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* 히어로 */}
         <View style={styles.hero}>
-          <Text style={styles.heroIcon}>🔷</Text>
+          <Ionicons name="diamond-outline" size={48} color={Colors.primary} style={styles.heroIcon} />
           <Text style={styles.heroTitle}>DocuMate Pro</Text>
           <Text style={styles.heroDesc}>AI 소비분석으로 더 스마트한 자산 관리</Text>
           {!isPro && (
@@ -109,7 +109,7 @@ export default function ProPromotionScreen() {
           <Text style={styles.featureTitle}>Pro 기능</Text>
           {FEATURES.map((f) => (
             <View key={f.title} style={styles.featureItem}>
-              <Text style={styles.featureIcon}>{f.icon}</Text>
+              <Ionicons name={f.icon} size={22} color={Colors.primary} style={styles.featureIcon} />
               <View style={styles.featureInfo}>
                 <View style={styles.featureTitleRow}>
                   <Text style={styles.featureName}>{f.title}</Text>

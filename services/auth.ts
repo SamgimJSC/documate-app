@@ -78,30 +78,19 @@ export async function getCurrentUser(): Promise<AuthUser> {
   };
 }
 
-export async function updateNickname(nickname: string): Promise<string> {
-  const response = await axiosInstance.patch("/users/me/nickname", {
+export async function updateNickname(
+  userId: string,
+  nickname: string,
+): Promise<string> {
+  const response = await axiosInstance.patch(`/users/${userId}`, {
     nickname,
   });
   const data = unwrapData<Record<string, unknown>>(response);
   return String(data.nickname ?? nickname);
 }
 
-export async function verifyCurrentPassword(password: string): Promise<boolean> {
-  const response = await axiosInstance.post("/auth/password/verify", {
-    password,
-  });
-  const data = unwrapData<Record<string, unknown>>(response);
-  return data.valid === true;
-}
-
-export async function changePassword(
-  currentPassword: string,
-  newPassword: string,
-): Promise<void> {
-  await axiosInstance.post("/auth/password/update", {
-    current_password: currentPassword,
-    new_password: newPassword,
-  });
+export async function logoutSession(): Promise<void> {
+  await axiosInstance.post("/auth/logout");
 }
 
 export async function setBiometricLoginEnabled(

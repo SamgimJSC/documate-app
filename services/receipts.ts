@@ -182,16 +182,6 @@ export async function getReceiptDetail(receiptId: string): Promise<Receipt> {
   return toReceipt(payload);
 }
 
-export async function updateReceiptFavorite(
-  receiptId: string,
-  isFavorite: boolean,
-) {
-  return receiptRequest<{ success: boolean; is_favorite: boolean }>(
-    `/receipts/${receiptId}/favorite`,
-    { method: 'PATCH', body: JSON.stringify({ is_favorite: isFavorite }) },
-  );
-}
-
 export async function updateReceipt(
   receiptId: string,
   payload: UpdateReceiptPayload,

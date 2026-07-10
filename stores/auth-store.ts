@@ -2,17 +2,21 @@ import {
   BIOMETRIC_ENABLED_KEY,
   BIOMETRIC_LOGIN_EMAIL_KEY,
   PIN_LOGIN_EMAIL_KEY,
-  changePassword,
   getCurrentUser,
+  logoutSession,
   rememberBiometricLoginEmail,
   setBiometricLoginEnabled,
   updateNickname as updateNicknameRequest,
-  verifyCurrentPassword,
 } from "@/services/auth";
 import {
   createBiometricKeyPair,
   deleteBiometricKeys,
 } from "@/services/rnb";
+import { useDocStore } from "@/stores/doc-store";
+import { useNotificationBannerStore } from "@/stores/notification-banner-store";
+import { useReceiptStore } from "@/stores/receipt-store";
+import { useToastStore } from "@/stores/toast-store";
+import axiosInstance from "@/utils/axios.util";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
@@ -36,21 +40,18 @@ interface AuthState {
   isBiometricEnabled: boolean;
 
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  loginWithPin: (pinNumber: string) => Promise<boolean>;
+  logout: () => Promise<void>;
   forgetSavedLogin: () => void;
   register: (
     email: string,
     password: string,
     nickname: string,
   ) => Promise<void>;
-  checkEmailExists: (email: string) => boolean;
-  verifyPassword: (password: string) => Promise<boolean>;
-  updatePassword: (
-    currentPassword: string,
-    newPassword: string,
-  ) => Promise<void>;
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
+  verifyPinWithServer: (pinNumber: string) => Promise<boolean>;
+  changePinWithServer: (currentPin: string, newPin: string) => Promise<void>;
   setPinVerified: (verified: boolean) => void;
   enableBiometric: (email?: string) => Promise<void>;
   disableBiometric: () => Promise<void>;
@@ -58,52 +59,65 @@ interface AuthState {
   upgradeToPro: () => void;
 }
 
-// TODO [배포 전]: MOCK_USER, REGISTERED_EMAILS 전체 삭제
-const MOCK_USER: User = {
-  id: "user-1",
-  email: "test@example.com",
-  nickname: "홍길동",
-  plan: "free",
-  storageUsed: 1.2,
-  storageLimit: 5,
-};
-
-const REGISTERED_EMAILS = new Set([MOCK_USER.email]);
+function clearUserCaches(): void {
+  useDocStore.getState().reset();
+  useReceiptStore.getState().reset();
+  useNotificationBannerStore.getState().hide();
+  useToastStore.getState().hide();
+}
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
   user: null,
   token: null,
   isAuthenticated: false,
   isPinVerified: false,
-  // TODO [배포 전]: isPinSet: false, pin: "", password: "" 으로 초기화
+  // TODO [release]: initialize as isPinSet: false, pin: "", password: "".
   isPinSet: true,
   pin: "",
   password: "test",
   isBiometricEnabled: false,
 
-  // TODO [배포 전]: POST /auth/login API 실제 호출로 교체.
-  //   - 백엔드가 JWT를 response body로 반환하면 → token 저장 후 Authorization: Bearer <token> 헤더 방식 사용
-  //   - 백엔드가 HttpOnly 쿠키를 사용하면 → react-native-cookies 라이브러리로 쿠키 수동 관리 필요
-  //   - 응답에서 받은 실제 user 정보(id, nickname, plan, storageUsed 등)로 set() 해야 함
-  login: async (email, _password) => {
-    await new Promise((r) => setTimeout(r, 800));
-    // API에서 이미 인증됨 → Mock 검증 제거
+  login: async (email, password) => {
+    await axiosInstance.post("/auth/login", { email, password });
+    const userData = await getCurrentUser();
     set({
-      user: { ...MOCK_USER, email },
-      token: "mock-jwt-token",
+      user: userData,
+      token: "logged-in",
       isAuthenticated: true,
       isPinVerified: true,
-      isPinSet: true,
-      pin: "000000",
     });
   },
 
-  logout: () => {
-    const keepBiometricLogin = get().isBiometricEnabled;
-    void SecureStore.deleteItemAsync("accessToken");
-    if (!keepBiometricLogin) {
-      void SecureStore.deleteItemAsync("refreshToken");
+  loginWithPin: async (pinNumber) => {
+    const email = get().user?.email;
+    if (!email) return false;
+
+    try {
+      await axiosInstance.post("/auth/login/pin", { email, pinNumber });
+      set({
+        isAuthenticated: true,
+        isPinVerified: true,
+        pin: pinNumber,
+        isPinSet: true,
+      });
+      return true;
+    } catch {
+      return false;
     }
+  },
+
+  logout: async () => {
+    const keepBiometricLogin = get().isBiometricEnabled;
+    try {
+      await logoutSession();
+    } catch (error) {
+      console.warn("Server logout failed; clearing local session.", error);
+    }
+    await Promise.all([
+      SecureStore.deleteItemAsync("accessToken"),
+      SecureStore.deleteItemAsync("refreshToken"),
+    ]);
+    clearUserCaches();
     set({
       user: null,
       token: null,
@@ -116,6 +130,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   forgetSavedLogin: () => {
+    clearUserCaches();
     void Promise.all([
       SecureStore.deleteItemAsync("accessToken"),
       SecureStore.deleteItemAsync("refreshToken"),
@@ -135,54 +150,26 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     });
   },
 
-  // TODO [배포 전]: POST /auth/register API 실제 호출로 교체.
-  //   - 서버에서 이메일 중복 체크를 담당하므로 REGISTERED_EMAILS Set 제거
-  //   - 회원가입 성공 시 서버에서 반환한 user 정보로 set() 해야 함
-  register: async (email, _password, nickname) => {
-    await new Promise((r) => setTimeout(r, 800));
-    if (REGISTERED_EMAILS.has(email)) {
-      throw new Error("EMAIL_TAKEN");
-    }
-    REGISTERED_EMAILS.add(email);
-    set({
-      user: { ...MOCK_USER, email, nickname },
-      token: "mock-jwt-token",
-      isAuthenticated: true,
-      isPinVerified: false,
-      isPinSet: false,
-      password: _password,
-    });
-  },
-
-  // TODO [배포 전]: GET /auth/check-email?email= API 호출로 교체 (클라이언트 Set 제거)
-  checkEmailExists: (email) => REGISTERED_EMAILS.has(email),
-
-  verifyPassword: async (password) => verifyCurrentPassword(password),
-
-  updatePassword: async (currentPassword, newPassword) => {
-    await changePassword(currentPassword, newPassword);
-  },
+  register: async (_email, _password, _nickname) => {},
 
   setPin: (pin) => {
     set({ pin, isPinSet: true });
   },
 
-  verifyPin: (pin) => {
-    const isCorrect = get().pin === pin;
-    if (isCorrect) {
-      set({
-        user:
-          get().user ??
-          ({
-            ...MOCK_USER,
-            email: get().user?.email ?? MOCK_USER.email,
-          } as User),
-        token: get().token ?? "mock-jwt-token",
-        isPinVerified: true,
-        isAuthenticated: true,
-      });
+  verifyPin: (pin) => get().pin === pin,
+
+  verifyPinWithServer: async (pinNumber) => {
+    try {
+      await axiosInstance.post("/users/me/pin/verify", { pinNumber });
+      return true;
+    } catch {
+      return false;
     }
-    return isCorrect;
+  },
+
+  changePinWithServer: async (currentPin, newPin) => {
+    await axiosInstance.patch("/users/me/pin", { currentPin, newPin });
+    set({ pin: newPin, isPinSet: true });
   },
 
   setPinVerified: (verified) => set({ isPinVerified: verified }),
@@ -217,16 +204,18 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   updateNickname: async (nickname) => {
-    const savedNickname = await updateNicknameRequest(nickname);
+    const userId = get().user?.id || (await getCurrentUser()).id;
+    if (!userId) throw new Error("USER_ID_NOT_FOUND");
+    const savedNickname = await updateNicknameRequest(userId, nickname);
     set((state) => ({
-      user: state.user ? { ...state.user, nickname: savedNickname } : null,
+      user: state.user
+        ? { ...state.user, id: userId, nickname: savedNickname }
+        : null,
     }));
   },
 
   upgradeToPro: () =>
     set((state) => ({
-      user: state.user
-        ? { ...state.user, plan: "pro", storageLimit: 50 }
-        : null,
+      user: state.user ? { ...state.user, plan: "pro", storageLimit: 50 } : null,
     })),
 }));

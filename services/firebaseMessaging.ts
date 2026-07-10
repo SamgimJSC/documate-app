@@ -25,6 +25,7 @@
 import axiosInstance from "@/utils/axios.util";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
+import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
 // ── Section 1: expo-notifications 기반 (현재 활성) ───────────────────────────

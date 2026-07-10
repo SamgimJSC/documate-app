@@ -1,3 +1,4 @@
+import { CATEGORY_FIELDS } from '@/constants/document-fields';
 import { DocumentCategory } from '@/constants/mock-data';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
@@ -27,7 +28,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const CATEGORIES: DocumentCategory[] = ['계약서', '보증서', '처방전', '보험서류', '기타'];
+const CATEGORIES: DocumentCategory[] = ['계약서', '보증서', '처방전', '보험서류', '영수증', '기타'];
+
+const EDIT_FIELD_LABELS: Record<string, string> = {
+  contractDate: '계약일', expiryDate: '만료일', renewalDate: '갱신일', parties: '계약자',
+  productName: '제품명', purchaseDate: '구매일', warrantyPeriod: '보증기간', repairDate: '수리일',
+  hospitalName: '병원명', visitDate: '진료일', amount: '금액', medication: '약품명',
+  insurer: '보험사', date: '날짜', notes: '메모',
+};
 
 const NOTI_OPTIONS: { days: number; label: string }[] = [
   { days: 30, label: '만료 1개월 전' },
@@ -69,6 +77,14 @@ const FILE_TYPE_LABELS: Record<string, string> = {
 export default function DocumentEditScreen() {
   const { id, manual } = useLocalSearchParams<{ id: string; manual?: string }>();
   const router = useRouter();
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/cabinet' as any);
+    }
+  };
   const { documents, categories, updateDocument, removeDocument, createDocumentOnServer, replaceDocumentId } = useDocStore();
   const doc = documents.find((d) => d.id === id);
 
@@ -81,13 +97,10 @@ export default function DocumentEditScreen() {
   const [renewalDate, setRenewalDate] = useState(doc?.renewalDate ?? '');
   const [imageUri, setImageUri] = useState<string | undefined>(doc?.imageUri);
 
-  // AI 추출 정보 (편집 가능)
-  const [extractedDate, setExtractedDate] = useState(doc?.extractedData?.date ?? '');
-  const [extractedAmount, setExtractedAmount] = useState(doc?.extractedData?.amount ?? '');
-  const [extractedParties, setExtractedParties] = useState(
-    (doc?.extractedData?.parties ?? []).join(', ')
+  // AI 추출 정보 (카테고리별 동적 필드)
+  const [extractedFields, setExtractedFields] = useState<Record<string, string>>(
+    () => ({ ...(doc?.extractedData ?? {}) })
   );
-  const [extractedNotes, setExtractedNotes] = useState(doc?.extractedData?.notes ?? '');
   const [notesHeight, setNotesHeight] = useState(64);
 
   // 태그: 기존 서버 태그 (tagId 포함) + 새로 추가한 것 (tagId 없음)
@@ -115,7 +128,7 @@ export default function DocumentEditScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <Text style={styles.notFoundText}>문서를 찾을 수 없습니다</Text>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => goBack()}>
             <Text style={styles.backLink}>돌아가기</Text>
           </TouchableOpacity>
         </View>
@@ -159,7 +172,7 @@ export default function DocumentEditScreen() {
     if (isManual && !title.trim()) {
       removeDocument(doc.id);
     }
-    router.back();
+    goBack();
   };
 
   const commitSave = async () => {
@@ -184,13 +197,10 @@ export default function DocumentEditScreen() {
 
     const matchedCat = categories.find((c) => c.name === category);
 
-    const newExtractedData = {
-      ...doc.extractedData,
-      date: extractedDate.trim() || undefined,
-      amount: extractedAmount.trim() || undefined,
-      parties: extractedParties.trim() ? extractedParties.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
-      notes: extractedNotes.trim() || undefined,
-    };
+    const newExtractedData: Record<string, string> = {};
+    for (const [k, v] of Object.entries(extractedFields)) {
+      if (v.trim()) newExtractedData[k] = v.trim();
+    }
 
     updateDocument(doc.id, {
       title: title.trim(),
@@ -228,7 +238,7 @@ export default function DocumentEditScreen() {
           issueDate: issueDate.trim() || undefined,
           expiryDate: expiryDate.trim() || undefined,
           renewalDate: renewalDate.trim() || undefined,
-          extractedData: newExtractedData,
+          extractedData: newExtractedData as any,
           ...(matchedCat ? { categoryId: matchedCat.categoryId } : {}),
         });
       }
@@ -429,59 +439,61 @@ export default function DocumentEditScreen() {
             </View>
           </View>
 
-          {/* AI 추출 정보 (수기 등록이 아닐 때 항상 표시) */}
-          {!isManual && (
-            <>
-              <Text style={styles.sectionLabel}>AI 추출 정보</Text>
-              <View style={styles.card}>
-                <View style={styles.fieldRow}>
-                  <Text style={styles.fieldKey}>날짜</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={extractedDate}
-                    onChangeText={setExtractedDate}
-                    placeholder="예: 2026-01-20"
-                    placeholderTextColor={Colors.gray400}
-                  />
-                </View>
-                <View style={styles.fieldRow}>
-                  <Text style={styles.fieldKey}>금액</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={extractedAmount}
-                    onChangeText={setExtractedAmount}
-                    placeholder="예: 50,000,000원"
-                    placeholderTextColor={Colors.gray400}
-                  />
-                </View>
-                <View style={styles.fieldRow}>
-                  <Text style={styles.fieldKey}>당사자</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={extractedParties}
-                    onChangeText={setExtractedParties}
-                    placeholder="쉼표로 구분 (예: 홍길동, 이순신)"
-                    placeholderTextColor={Colors.gray400}
-                  />
-                </View>
-                <View style={[styles.fieldRow, styles.fieldRowLast, styles.fieldRowTop]}>
-                  <Text style={styles.fieldKey}>메모</Text>
-                  <TextInput
-                    style={[styles.fieldInput, styles.fieldInputNotes, { height: Math.max(notesHeight, 64) }]}
-                    value={extractedNotes}
-                    onChangeText={setExtractedNotes}
-                    onContentSizeChange={(e) =>
-                      setNotesHeight(Math.min(e.nativeEvent.contentSize.height, 200))
-                    }
-                    placeholder="기타 메모"
-                    placeholderTextColor={Colors.gray400}
-                    multiline
-                    textAlignVertical="top"
-                  />
-                </View>
-              </View>
-            </>
-          )}
+          {/* AI 추출 정보 (카테고리별 동적 필드) */}
+          <Text style={styles.sectionLabel}>AI 추출 정보</Text>
+          <View style={styles.card}>
+            {(() => {
+              const standardFields = CATEGORY_FIELDS[category] ?? [];
+              const standardKeys = new Set(standardFields.map((f) => f.key));
+              const extraKeys = Object.keys(extractedFields).filter(
+                (k) => !standardKeys.has(k) && extractedFields[k]
+              );
+              const allFields = [
+                ...standardFields,
+                ...extraKeys.map((k) => ({
+                  key: k,
+                  label: EDIT_FIELD_LABELS[k] ?? k,
+                  placeholder: '',
+                  multiline: extractedFields[k].length > 80,
+                })),
+              ];
+              return allFields.map((field, idx) => {
+                const isLast = idx === allFields.length - 1;
+                return (
+                  <View
+                    key={field.key}
+                    style={[
+                      styles.fieldRow,
+                      isLast && styles.fieldRowLast,
+                      field.multiline && styles.fieldRowTop,
+                    ]}
+                  >
+                    <Text style={styles.fieldKey}>{field.label}</Text>
+                    <TextInput
+                      style={[
+                        styles.fieldInput,
+                        field.multiline && styles.fieldInputNotes,
+                        field.multiline && { height: Math.max(notesHeight, 64) },
+                      ]}
+                      value={extractedFields[field.key] ?? ''}
+                      onChangeText={(val) =>
+                        setExtractedFields((prev) => ({ ...prev, [field.key]: val }))
+                      }
+                      onContentSizeChange={
+                        field.multiline
+                          ? (e) => setNotesHeight(Math.min(e.nativeEvent.contentSize.height, 200))
+                          : undefined
+                      }
+                      placeholder={field.placeholder}
+                      placeholderTextColor={Colors.gray400}
+                      multiline={field.multiline}
+                      textAlignVertical={field.multiline ? 'top' : 'center'}
+                    />
+                  </View>
+                );
+              });
+            })()}
+          </View>
 
           {/* 알림 설정 */}
           <Text style={styles.sectionLabel}>알림 설정</Text>
@@ -536,7 +548,8 @@ export default function DocumentEditScreen() {
           {/* 태그 */}
           <Text style={styles.sectionLabel}>태그</Text>
           <View style={styles.card}>
-            <View style={[styles.fieldRow, styles.tagInputRow]}>
+            <View style={styles.tagInputRow}>
+              <Ionicons name="pricetag-outline" size={15} color={Colors.gray400} style={{ marginLeft: Spacing.md }} />
               <TextInput
                 style={styles.tagInput}
                 value={tagInput}
@@ -546,25 +559,32 @@ export default function DocumentEditScreen() {
                 onSubmitEditing={handleAddTag}
                 returnKeyType="done"
               />
-              <TouchableOpacity style={styles.tagAddBtn} onPress={handleAddTag}>
-                <Text style={styles.tagAddBtnText}>추가</Text>
+              <TouchableOpacity
+                style={[styles.tagAddBtn, !tagInput.trim() && styles.tagAddBtnDisabled]}
+                onPress={handleAddTag}
+                disabled={!tagInput.trim()}
+              >
+                <Text style={[styles.tagAddBtnText, !tagInput.trim() && styles.tagAddBtnTextDisabled]}>추가</Text>
               </TouchableOpacity>
             </View>
-            {localTags.length === 0 ? (
-              <Text style={[styles.hint, { paddingHorizontal: Spacing.md, paddingBottom: Spacing.md }]}>
-                등록된 태그가 없습니다.
-              </Text>
-            ) : (
-              <View style={styles.tagChipRow}>
-                {localTags.map((tag, idx) => (
-                  <View key={`${tag.name}-${idx}`} style={styles.tagChip}>
-                    <Text style={styles.tagChipText}>{tag.name}</Text>
-                    <TouchableOpacity onPress={() => handleRemoveTag(idx)} hitSlop={6}>
-                      <Ionicons name="close" size={14} color={Colors.gray500} />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
+            {localTags.length > 0 && (
+              <>
+                <View style={styles.tagDivider} />
+                <View style={styles.tagChipRow}>
+                  {localTags.map((tag, idx) => (
+                    <View key={`${tag.name}-${idx}`} style={styles.tagChip}>
+                      <Text style={styles.tagChipHash}>#</Text>
+                      <Text style={styles.tagChipText}>{tag.name}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveTag(idx)} hitSlop={6}>
+                        <Ionicons name="close" size={13} color={Colors.primary} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+            {localTags.length === 0 && (
+              <Text style={styles.tagEmpty}>추가된 태그가 없습니다.</Text>
             )}
           </View>
 
@@ -762,28 +782,41 @@ const styles = StyleSheet.create({
   dropdownItemText: { fontSize: 14, color: Colors.gray700 },
   dropdownItemTextActive: { color: Colors.primary, fontWeight: '600' },
 
-  tagInputRow: { borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
-  tagInput: { flex: 1, fontSize: 14, color: Colors.gray900, padding: 0 },
-  tagAddBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 5,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.primary,
+  tagInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingRight: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray100,
   },
-  tagAddBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  tagInput: { flex: 1, fontSize: 14, color: Colors.gray900, paddingVertical: 13, padding: 0 },
+  tagAddBtn: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  tagAddBtnDisabled: { borderColor: Colors.gray200 },
+  tagAddBtnText: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+  tagAddBtnTextDisabled: { color: Colors.gray300 },
+  tagDivider: { height: 1, backgroundColor: Colors.gray100, marginHorizontal: Spacing.md },
   tagChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, padding: Spacing.md },
   tagChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: Radius.full,
-    backgroundColor: Colors.gray100,
+    backgroundColor: Colors.primaryLight,
     borderWidth: 1,
-    borderColor: Colors.gray200,
+    borderColor: Colors.primary + '33',
   },
-  tagChipText: { fontSize: 13, color: Colors.gray700 },
+  tagChipHash: { fontSize: 12, color: Colors.primary, fontWeight: '700' },
+  tagChipText: { fontSize: 13, color: Colors.primary, fontWeight: '500' },
+  tagEmpty: { fontSize: 13, color: Colors.gray400, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md },
 
   imagePlaceholder: {
     height: 140,
@@ -854,4 +887,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sheetCancelText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
+
 });

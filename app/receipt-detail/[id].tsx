@@ -86,7 +86,6 @@ export default function ReceiptDetailScreen() {
   const {
     receipts,
     removeReceipt,
-    toggleFavorite,
     updateReceipt,
   } = useReceiptStore();
 
@@ -114,9 +113,7 @@ export default function ReceiptDetailScreen() {
     getReceiptDetail(id)
       .then((data) => {
         if (!mounted) return;
-        const merged = receiptFromStore
-          ? { ...receiptFromStore, ...data, isFavorite: receiptFromStore.isFavorite }
-          : data;
+        const merged = receiptFromStore ? { ...receiptFromStore, ...data } : data;
         setReceipt(merged);
         setForm(toForm(merged));
         updateReceipt(merged);
@@ -141,12 +138,6 @@ export default function ReceiptDetailScreen() {
     () => formatPaymentItem(receipt?.paymentItem),
     [receipt?.paymentItem],
   );
-
-  const handleFavorite = () => {
-    if (!receipt) return;
-    toggleFavorite(receipt.id);
-    setReceipt({ ...receipt, isFavorite: !receipt.isFavorite });
-  };
 
   const handleDelete = () => {
     if (!receipt) return;
@@ -205,7 +196,6 @@ export default function ReceiptDetailScreen() {
       const merged = {
         ...receipt,
         ...saved,
-        isFavorite: receipt.isFavorite,
       };
       setReceipt(merged);
       updateReceipt(merged);
@@ -250,13 +240,6 @@ export default function ReceiptDetailScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>영수증 상세</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity onPress={handleFavorite} style={styles.iconBtn}>
-            <Ionicons
-              name={receipt.isFavorite ? "star" : "star-outline"}
-              size={22}
-              color={receipt.isFavorite ? Colors.warning : Colors.gray500}
-            />
-          </TouchableOpacity>
           <TouchableOpacity onPress={openEdit} style={styles.iconBtn}>
             <Ionicons name="pencil-outline" size={22} color={Colors.gray700} />
           </TouchableOpacity>

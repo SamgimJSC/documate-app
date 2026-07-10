@@ -3,12 +3,13 @@ import { Colors, Radius, Spacing } from "@/constants/theme";
 import { rememberPinLoginEmail } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import axiosInstance from "@/utils/axios.util";
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type Step = "enter" | "confirm";
+type Step = "verify" | "enter" | "confirm";
 
 export default function PinSetupScreen() {
   const router = useRouter();
@@ -21,11 +22,45 @@ export default function PinSetupScreen() {
   }>();
   const [loading, setLoading] = useState(false);
 
+  const isRegister = params.source === "register";
+  const setPin = useAuthStore((s) => s.setPin);
+  const setPinVerified = useAuthStore((s) => s.setPinVerified);
+  const verifyPinWithServer = useAuthStore((s) => s.verifyPinWithServer);
+  const changePinWithServer = useAuthStore((s) => s.changePinWithServer);
+
+  const [step, setStep] = useState<Step>(isRegister ? "enter" : "verify");
+  const [currentPin, setCurrentPin] = useState("");
+  const [firstPin, setFirstPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+
+  const handleVerify = async (val: string) => {
+    setCurrentPin(val);
+    if (val.length === 6) {
+      const ok = await verifyPinWithServer(val);
+      if (ok) {
+        setStep("enter");
+        setError("");
+      } else {
+        setError("현재 PIN이 올바르지 않습니다.");
+        setCurrentPin("");
+      }
+    }
+  };
+
+  const handleEnter = (val: string) => {
+    setFirstPin(val);
+    if (val.length === 6) {
+      setStep("confirm");
+    }
+  };
+
   const handleConfirm = async (val: string) => {
     setConfirmPin(val);
     if (val.length === 6) {
       if (val === firstPin) {
-        if (source) {
+        if (isRegister) {
           setLoading(true);
           try {
             await axiosInstance.post("/auth/signup", {
@@ -48,9 +83,18 @@ export default function PinSetupScreen() {
             setLoading(false);
           }
         } else {
-          setPin(val);
-          setPinVerified(true);
-          router.replace("/(tabs)" as any);
+          setLoading(true);
+          try {
+            await changePinWithServer(currentPin, val);
+            router.replace("/(tabs)" as any);
+          } catch {
+            setError("PIN 변경에 실패했습니다. 다시 시도해주세요.");
+            setConfirmPin("");
+            setFirstPin("");
+            setStep("enter");
+          } finally {
+            setLoading(false);
+          }
         }
       } else {
         setError("PIN이 일치하지 않습니다. 다시 시도해주세요.");
@@ -61,41 +105,32 @@ export default function PinSetupScreen() {
     }
   };
 
-  const source = params.source === "register";
-  const setPin = useAuthStore((s) => s.setPin);
-  const setPinVerified = useAuthStore((s) => s.setPinVerified);
-  const [step, setStep] = useState<Step>("enter");
-  const [firstPin, setFirstPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [error, setError] = useState("");
-  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const titleText = {
+    verify: "현재 PIN 입력",
+    enter: "PIN 번호 설정",
+    confirm: "PIN 번호 확인",
+  }[step];
 
-  const handleEnter = (val: string) => {
-    setFirstPin(val);
-    if (val.length === 6) {
-      setStep("confirm");
-    }
-  };
+  const descText = {
+    verify: "보안 확인을 위해 현재 PIN을 입력해주세요.",
+    enter: "새로운 6자리 PIN을 설정해주세요.",
+    confirm: "확인을 위해 PIN을 다시 입력해주세요.",
+  }[step];
+
+  const padValue = step === "verify" ? currentPin : step === "enter" ? firstPin : confirmPin;
+  const padOnChange = step === "verify" ? handleVerify : step === "enter" ? handleEnter : handleConfirm;
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.iconWrap}>
-          <Text style={styles.icon}>🔐</Text>
+          <Ionicons name="lock-closed-outline" size={48} color={Colors.primary} />
         </View>
-        <Text style={styles.title}>
-          {step === "enter" ? "PIN 번호 설정" : "PIN 번호 확인"}
-        </Text>
-        <Text style={styles.desc}>
-          {step === "enter"
-            ? "앱 보안을 위한 6자리 PIN을 설정해주세요."
-            : "확인을 위해 PIN을 다시 입력해주세요."}
-        </Text>
+        <Text style={styles.title}>{titleText}</Text>
+        <Text style={styles.desc}>{descText}</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <PinPad
-          value={step === "enter" ? firstPin : confirmPin}
-          onChange={step === "enter" ? handleEnter : handleConfirm}
-        />
+        <PinPad value={padValue} onChange={padOnChange} />
+        {loading && <Text style={styles.loading}>처리 중...</Text>}
       </View>
       <Modal visible={showCompleteModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -162,6 +197,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   error: { fontSize: 14, color: Colors.error, textAlign: "center" },
+  loading: { fontSize: 14, color: Colors.gray400 },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",

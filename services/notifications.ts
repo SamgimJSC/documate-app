@@ -90,7 +90,7 @@ export async function rescheduleAllNotifications(
 // 즉시 알림 (테스트용)
 export async function sendTestNotification() {
   await Notifications.scheduleNotificationAsync({
-    content: { title: '테스트 알림 🔔', body: '알림이 정상 작동합니다!', sound: true },
+    content: { title: '테스트 알림', body: '알림이 정상 작동합니다!', sound: true },
     trigger: null,
   });
 }
@@ -185,7 +185,7 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 export type NotificationStatus = "all" | "unread" | "read";
 
 export type ServerNotification = {
-  alert_id: string;
+  notificationId: string;
   document_id: string;
   title: string;
   body: string;
@@ -221,7 +221,9 @@ async function request<T>(
     throw new Error(`API 요청 실패: ${response.status} ${errorText}`);
   }
 
-  const json = await response.json();
+  const text = await response.text();
+  if (!text) return undefined as T;
+  const json = JSON.parse(text);
   return (json?.data ?? json) as T;
 }
 
@@ -279,35 +281,39 @@ export async function createDocumentAlert(
   });
 }
 
-// PUT /alerts/:alertId
-export async function updateAlert(alertId: string, body: UpdateAlertBody) {
+// PATCH /documents/:documentId/alerts/:alertId
+export async function updateAlert(
+  documentId: string,
+  alertId: string,
+  body: UpdateAlertBody,
+) {
   return request<{ success: boolean; alert_id: string }>(
-    `/alerts/${alertId}`,
-    { method: "PUT", body: JSON.stringify(body) }
+    `/documents/${documentId}/alerts/${alertId}`,
+    { method: "PATCH", body: JSON.stringify(body) }
   );
 }
 
-// DELETE /alerts/:alertId
-export async function deleteAlert(alertId: string) {
+// DELETE /documents/:documentId/alerts/:alertId
+export async function deleteAlert(documentId: string, alertId: string) {
   return request<{ success: boolean; message: string }>(
-    `/alerts/${alertId}`,
+    `/documents/${documentId}/alerts/${alertId}`,
     { method: "DELETE" }
   );
 }
 
-// GET /settings/notifications
+// GET /users/me/settings
 export async function getNotificationSettings() {
-  return request<NotificationSettings>("/settings/notifications", {
+  return request<NotificationSettings>("/users/me/settings", {
     method: "GET",
   });
 }
 
-// PATCH /settings/notifications
+// PATCH /users/me/settings
 export async function updateNotificationSettings(
   body: Partial<NotificationSettings>
 ) {
   return request<{ success: boolean; settings: NotificationSettings }>(
-    "/settings/notifications",
+    "/users/me/settings",
     { method: "PATCH", body: JSON.stringify(body) }
   );
 }

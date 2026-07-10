@@ -10,12 +10,11 @@ import {
 import { useAuthStore } from "@/stores/auth-store";
 import { useDocStore } from "@/stores/doc-store";
 import { useReceiptStore } from "@/stores/receipt-store";
-import { analyzePassword, validatePassword } from "@/utils/validation";
 import { calculateStorageUsedGb, formatStorageUsed } from "@/utils/storage-usage";
 import { Ionicons } from "@expo/vector-icons";
 import { isAxiosError } from "axios";
 import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Modal,
@@ -115,8 +114,6 @@ export default function MyPageScreen() {
     enableBiometric,
     disableBiometric,
     updateNickname,
-    verifyPassword,
-    updatePassword,
   } = useAuthStore();
 
   const [pushEnabled, setPushEnabled] = useState(true);
@@ -124,29 +121,8 @@ export default function MyPageScreen() {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [nicknameModalVisible, setNicknameModalVisible] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(user?.nickname ?? "");
-  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
-  const [passwordStep, setPasswordStep] = useState<"verify" | "change">(
-    "verify",
-  );
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [nicknameMessage, setNicknameMessage] = useState<string | null>(null);
-  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [biometricUpdating, setBiometricUpdating] = useState(false);
-
-  const { typeCount: newPwTypeCount, strengthLabel: newPwStrengthLabel } =
-    useMemo(() => analyzePassword(newPassword), [newPassword]);
-
-  const newPwStrengthColor =
-    newPwTypeCount === 0
-      ? Colors.gray500
-      : newPwTypeCount === 1
-        ? Colors.error
-        : newPwTypeCount === 2
-          ? Colors.warning
-          : Colors.success;
 
   const storageUsed = calculateStorageUsedGb(
     documents,
@@ -211,7 +187,11 @@ export default function MyPageScreen() {
   const handleLogout = () => {
     Alert.alert("로그아웃", "정말 로그아웃 하시겠습니까?", [
       { text: "취소", style: "cancel" },
-      { text: "로그아웃", style: "destructive", onPress: logout },
+      {
+        text: "로그아웃",
+        style: "destructive",
+        onPress: () => void logout(),
+      },
     ]);
   };
 
@@ -253,71 +233,7 @@ export default function MyPageScreen() {
 
   const handleStartPasswordChange = () => {
     setSettingsModalVisible(false);
-    setPasswordModalVisible(true);
-    setPasswordStep("verify");
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-    setPasswordError(null);
-  };
-
-  const handleVerifyCurrentPassword = async () => {
-    if (!currentPassword) {
-      setPasswordError("현재 비밀번호를 입력해주세요.");
-      return;
-    }
-    try {
-      if (!(await verifyPassword(currentPassword))) {
-        setPasswordError("현재 비밀번호가 올바르지 않습니다.");
-        return;
-      }
-      setPasswordStep("change");
-      setPasswordError(null);
-    } catch (error: unknown) {
-      const code = isAxiosError(error)
-        ? error.response?.data?.code ?? error.response?.data?.errorCode
-        : undefined;
-      setPasswordError(
-        code === "INVALID_PASSWORD"
-          ? "현재 비밀번호가 올바르지 않습니다."
-          : "비밀번호 확인에 실패했습니다.",
-      );
-    }
-  };
-
-  const handleUpdatePassword = async () => {
-    if (newPassword !== confirmPassword) {
-      setPasswordError("비밀번호가 일치하지 않습니다.");
-      return;
-    }
-
-    const passwordErr = validatePassword(newPassword);
-    if (passwordErr) {
-      setPasswordError(passwordErr);
-      return;
-    }
-
-    try {
-      await updatePassword(currentPassword, newPassword);
-      setPasswordModalVisible(false);
-      setPasswordStep("verify");
-      setPasswordError(null);
-      setPasswordMessage("비밀번호가 변경되었습니다.");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (error: unknown) {
-      const code = isAxiosError(error)
-        ? error.response?.data?.code ?? error.response?.data?.errorCode
-        : undefined;
-      setPasswordError(
-        code === "INVALID_PASSWORD"
-          ? "현재 비밀번호가 올바르지 않습니다."
-          : code === "INVALID_NEW_PASSWORD_FORMAT"
-            ? "새 비밀번호 형식을 확인해주세요."
-            : "비밀번호 변경에 실패했습니다.",
-      );
-    }
+    router.push("/(auth)/forgot-password");
   };
 
   const handleBiometricToggle = async (value: boolean) => {
@@ -443,10 +359,6 @@ export default function MyPageScreen() {
             </TouchableOpacity>
           </View>
         </View>
-
-        {passwordMessage ? (
-          <Text style={styles.noticeText}>{passwordMessage}</Text>
-        ) : null}
 
         <View style={styles.storageCard}>
           <View style={styles.storageRow}>
@@ -639,84 +551,6 @@ export default function MyPageScreen() {
         </View>
       </Modal>
 
-      <Modal visible={passwordModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>비밀번호 변경</Text>
-            {passwordStep === "verify" ? (
-              <>
-                <Text style={styles.modalDescription}>
-                  기존 비밀번호를 입력하면 새 비밀번호를 설정할 수 있습니다.
-                </Text>
-                <Input
-                  label="기존 비밀번호"
-                  placeholder="현재 비밀번호 입력"
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  isPassword
-                />
-                {passwordError ? (
-                  <Text style={styles.errorText}>{passwordError}</Text>
-                ) : null}
-                <Button label="확인" onPress={handleVerifyCurrentPassword} />
-                <Button
-                  label="취소"
-                  variant="outline"
-                  onPress={() => {
-                    setPasswordModalVisible(false);
-                    setPasswordError(null);
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                <Text style={styles.modalDescription}>
-                  새 비밀번호를 입력하고 확인해 주세요.
-                </Text>
-                <Input
-                  label="새 비밀번호"
-                  placeholder="8자 이상 입력"
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  isPassword
-                />
-                <Text style={styles.passwordHint}>
-                  영문, 숫자, 특수문자 중 2개 이상 포함해야 합니다.
-                </Text>
-                {newPassword.length > 0 ? (
-                  <Text
-                    style={[
-                      styles.passwordStrength,
-                      { color: newPwStrengthColor },
-                    ]}
-                  >
-                    비밀번호 강도: {newPwStrengthLabel}
-                  </Text>
-                ) : null}
-                <Input
-                  label="비밀번호 확인"
-                  placeholder="새 비밀번호 재입력"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  isPassword
-                />
-                {passwordError ? (
-                  <Text style={styles.errorText}>{passwordError}</Text>
-                ) : null}
-                <Button label="변경하기" onPress={handleUpdatePassword} />
-                <Button
-                  label="이전"
-                  variant="outline"
-                  onPress={() => {
-                    setPasswordStep("verify");
-                    setPasswordError(null);
-                  }}
-                />
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
