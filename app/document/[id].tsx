@@ -392,7 +392,7 @@ export default function DocumentDetailScreen() {
   const handleDeleteAlert = async (alertId: string) => {
     setServerAlerts((prev) => prev.filter((a) => a.alert_id !== alertId));
     try {
-      await deleteAlert(alertId);
+      await deleteAlert(doc.id, alertId);
     } catch (e) {
       console.log('알림 삭제 실패:', e);
     }
@@ -404,7 +404,7 @@ export default function DocumentDetailScreen() {
       prev.map((a) => a.alert_id === alertId ? { ...a, channel_app_push: newValue } : a)
     );
     try {
-      await updateAlert(alertId, { channel_app_push: newValue });
+      await updateAlert(doc.id, alertId, { channel_app_push: newValue });
     } catch (e) {
       setServerAlerts((prev) =>
         prev.map((a) => a.alert_id === alertId ? { ...a, channel_app_push: currentValue } : a)

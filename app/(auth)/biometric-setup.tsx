@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/common/button';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { useAuthStore } from '@/stores/auth-store';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function BiometricSetupScreen() {
   const router = useRouter();

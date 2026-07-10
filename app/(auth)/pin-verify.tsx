@@ -19,14 +19,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>, pin: string) {
+function completeLogin(user: Awaited<ReturnType<typeof getCurrentUser>>, pin?: string) {
   useAuthStore.setState({
     user,
     token: "session",
     isAuthenticated: true,
     isPinSet: true,
     isPinVerified: true,
-    pin,
+    ...(pin ? { pin } : {}),
   });
 }
 

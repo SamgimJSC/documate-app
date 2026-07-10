@@ -244,13 +244,13 @@ export async function updateDocument(
   return response.data;
 }
 
-// PATCH /documents/:documentId/secure
+// PATCH /documents/:documentId/lock
 export async function updateDocumentSecured(
   documentId: string,
   isSecured: boolean
 ) {
   const response = await documentRequest<ApiResponse<DocumentItem>>(
-    `/documents/${documentId}/secure`,
+    `/documents/${documentId}/lock`,
     {
       method: "PATCH",
       body: JSON.stringify({ isSecured }),
@@ -314,40 +314,4 @@ export async function deleteDocumentTag(documentId: string, tagId: string) {
   );
 
   return response.data;
-}
-
-// POST /documents/upload  (multipart/form-data)
-// 백엔드가 S3 업로드 + OCR 처리 후 생성된 DocumentItem 반환
-export async function uploadDocumentFile(
-  fileUri: string,
-  fileName: string,
-  mimeType: string = "image/jpeg"
-): Promise<DocumentItem> {
-  if (!BASE_URL) {
-    throw new Error("EXPO_PUBLIC_API_URL이 설정되어 있지 않습니다.");
-  }
-
-  const formData = new FormData();
-  formData.append("file", {
-    uri: fileUri,
-    name: fileName,
-    type: mimeType,
-  } as any);
-
-  // TODO [배포 전]: 인증 방식 확정 후 위의 documentRequest와 동일하게 맞출 것
-  const response = await fetch(`${BASE_URL}/documents/upload`, {
-    method: "POST",
-    credentials: "include",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `파일 업로드 실패: ${response.status} ${response.statusText} ${errorText}`
-    );
-  }
-
-  const json = await response.json() as ApiResponse<DocumentItem>;
-  return json.data;
 }

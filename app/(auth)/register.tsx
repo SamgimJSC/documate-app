@@ -20,8 +20,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function RegisterScreen() {
   const router = useRouter();
   const register = useAuthStore((s) => s.register);
-  // ↓ 중복 이메일 예외 처리 함수
-  const checkEmailExists = useAuthStore((s) => s.checkEmailExists);
   const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

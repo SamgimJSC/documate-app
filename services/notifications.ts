@@ -281,35 +281,39 @@ export async function createDocumentAlert(
   });
 }
 
-// PUT /alerts/:alertId
-export async function updateAlert(alertId: string, body: UpdateAlertBody) {
+// PATCH /documents/:documentId/alerts/:alertId
+export async function updateAlert(
+  documentId: string,
+  alertId: string,
+  body: UpdateAlertBody,
+) {
   return request<{ success: boolean; alert_id: string }>(
-    `/alerts/${alertId}`,
-    { method: "PUT", body: JSON.stringify(body) }
+    `/documents/${documentId}/alerts/${alertId}`,
+    { method: "PATCH", body: JSON.stringify(body) }
   );
 }
 
-// DELETE /alerts/:alertId
-export async function deleteAlert(alertId: string) {
+// DELETE /documents/:documentId/alerts/:alertId
+export async function deleteAlert(documentId: string, alertId: string) {
   return request<{ success: boolean; message: string }>(
-    `/alerts/${alertId}`,
+    `/documents/${documentId}/alerts/${alertId}`,
     { method: "DELETE" }
   );
 }
 
-// GET /settings/notifications
+// GET /users/me/settings
 export async function getNotificationSettings() {
-  return request<NotificationSettings>("/settings/notifications", {
+  return request<NotificationSettings>("/users/me/settings", {
     method: "GET",
   });
 }
 
-// PATCH /settings/notifications
+// PATCH /users/me/settings
 export async function updateNotificationSettings(
   body: Partial<NotificationSettings>
 ) {
   return request<{ success: boolean; settings: NotificationSettings }>(
-    "/settings/notifications",
+    "/users/me/settings",
     { method: "PATCH", body: JSON.stringify(body) }
   );
 }

@@ -2,17 +2,21 @@ import {
   BIOMETRIC_ENABLED_KEY,
   BIOMETRIC_LOGIN_EMAIL_KEY,
   PIN_LOGIN_EMAIL_KEY,
-  changePassword,
   getCurrentUser,
+  logoutSession,
   rememberBiometricLoginEmail,
   setBiometricLoginEnabled,
   updateNickname as updateNicknameRequest,
-  verifyCurrentPassword,
 } from "@/services/auth";
 import {
   createBiometricKeyPair,
   deleteBiometricKeys,
 } from "@/services/rnb";
+import { useDocStore } from "@/stores/doc-store";
+import { useNotificationBannerStore } from "@/stores/notification-banner-store";
+import { useReceiptStore } from "@/stores/receipt-store";
+import { useToastStore } from "@/stores/toast-store";
+import axiosInstance from "@/utils/axios.util";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
@@ -32,22 +36,17 @@ interface AuthState {
   isPinVerified: boolean;
   isPinSet: boolean;
   pin: string;
+  password: string;
   isBiometricEnabled: boolean;
 
   login: (email: string, password: string) => Promise<void>;
   loginWithPin: (pinNumber: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   forgetSavedLogin: () => void;
   register: (
     email: string,
     password: string,
     nickname: string,
-  ) => Promise<void>;
-  checkEmailExists: (email: string) => boolean;
-  verifyPassword: (password: string) => Promise<boolean>;
-  updatePassword: (
-    currentPassword: string,
-    newPassword: string,
   ) => Promise<void>;
   setPin: (pin: string) => void;
   verifyPin: (pin: string) => boolean;
@@ -60,12 +59,19 @@ interface AuthState {
   upgradeToPro: () => void;
 }
 
+function clearUserCaches(): void {
+  useDocStore.getState().reset();
+  useReceiptStore.getState().reset();
+  useNotificationBannerStore.getState().hide();
+  useToastStore.getState().hide();
+}
+
 export const useAuthStore = create<AuthState>()((set, get) => ({
   user: null,
   token: null,
   isAuthenticated: false,
   isPinVerified: false,
-  // TODO [배포 전]: isPinSet: false, pin: "", password: "" 으로 초기화
+  // TODO [release]: initialize as isPinSet: false, pin: "", password: "".
   isPinSet: true,
   pin: "",
   password: "test",
@@ -73,44 +79,45 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   login: async (email, password) => {
     await axiosInstance.post("/auth/login", { email, password });
-    const userRes = await axiosInstance.get("/users/me");
-    const userData = userRes.data;
+    const userData = await getCurrentUser();
     set({
-      user: {
-        id: userData.userId,
-        email: userData.email,
-        nickname: userData.nickname,
-        plan: userData.plan === "PRO" ? "pro" : "free",
-        storageUsed: Number(userData.storageUsedBytes) / 1024 / 1024 / 1024,
-        storageLimit: userData.storageQuotaBytes
-          ? Number(userData.storageQuotaBytes) / 1024 / 1024 / 1024
-          : 5,
-      },
+      user: userData,
       token: "logged-in",
       isAuthenticated: true,
       isPinVerified: true,
-      isPinSet: userData.hasPinNumber ?? userData.isPinSet ?? false,
     });
   },
 
   loginWithPin: async (pinNumber) => {
     const email = get().user?.email;
     if (!email) return false;
+
     try {
       await axiosInstance.post("/auth/login/pin", { email, pinNumber });
-      set({ isAuthenticated: true, isPinVerified: true, pin: pinNumber, isPinSet: true });
+      set({
+        isAuthenticated: true,
+        isPinVerified: true,
+        pin: pinNumber,
+        isPinSet: true,
+      });
       return true;
     } catch {
       return false;
     }
   },
 
-  logout: () => {
+  logout: async () => {
     const keepBiometricLogin = get().isBiometricEnabled;
-    void SecureStore.deleteItemAsync("accessToken");
-    if (!keepBiometricLogin) {
-      void SecureStore.deleteItemAsync("refreshToken");
+    try {
+      await logoutSession();
+    } catch (error) {
+      console.warn("Server logout failed; clearing local session.", error);
     }
+    await Promise.all([
+      SecureStore.deleteItemAsync("accessToken"),
+      SecureStore.deleteItemAsync("refreshToken"),
+    ]);
+    clearUserCaches();
     set({
       user: null,
       token: null,
@@ -123,6 +130,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   forgetSavedLogin: () => {
+    clearUserCaches();
     void Promise.all([
       SecureStore.deleteItemAsync("accessToken"),
       SecureStore.deleteItemAsync("refreshToken"),
@@ -144,19 +152,6 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   register: async (_email, _password, _nickname) => {},
 
-  checkEmailExists: async (email) => {
-    const res = await axiosInstance.get(
-      `/auth/check-email?email=${encodeURIComponent(email)}`,
-    );
-    return res?.data?.exists ?? false;
-  },
-
-  verifyPassword: async (password) => verifyCurrentPassword(password),
-
-  updatePassword: async (currentPassword, newPassword) => {
-    await changePassword(currentPassword, newPassword);
-  },
-
   setPin: (pin) => {
     set({ pin, isPinSet: true });
   },
@@ -174,7 +169,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   changePinWithServer: async (currentPin, newPin) => {
     await axiosInstance.patch("/users/me/pin", { currentPin, newPin });
-    set({ pin: newPin });
+    set({ pin: newPin, isPinSet: true });
   },
 
   setPinVerified: (verified) => set({ isPinVerified: verified }),
@@ -209,9 +204,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   updateNickname: async (nickname) => {
-    const savedNickname = await updateNicknameRequest(nickname);
+    const userId = get().user?.id || (await getCurrentUser()).id;
+    if (!userId) throw new Error("USER_ID_NOT_FOUND");
+    const savedNickname = await updateNicknameRequest(userId, nickname);
     set((state) => ({
-      user: state.user ? { ...state.user, nickname: savedNickname } : null,
+      user: state.user
+        ? { ...state.user, id: userId, nickname: savedNickname }
+        : null,
     }));
   },
 
