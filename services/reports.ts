@@ -31,6 +31,25 @@ export type CategorySummaryItem = {
   percent?: number;
 };
 
+export type TopStoreItem = {
+  storeName?: string;
+  store_name?: string;
+  name?: string;
+  totalAmount?: number;
+  total_amount?: number;
+  amount?: number;
+  receiptCount?: number;
+  receipt_count?: number;
+  count?: number;
+};
+
+export type WeekdaySummaryItem = {
+  weekday: number;
+  amount: number;
+  receiptCount?: number;
+  receipt_count?: number;
+};
+
 export async function getThisMonthSummary(): Promise<ThisMonthSummary> {
   const response = await axiosInstance.get('/reports/this-month-summary');
   return unwrapData<ThisMonthSummary>(response);
@@ -79,4 +98,31 @@ export async function getCategorySummary(params: {
     `/reports/category-summary${query.toString() ? `?${query.toString()}` : ''}`,
   );
   return unwrapData<CategorySummaryItem[]>(response);
+}
+
+export async function getTopStores(params: {
+  year?: number;
+  month?: number | string;
+  limit?: number;
+} = {}): Promise<TopStoreItem[]> {
+  const query = new URLSearchParams();
+  if (params.year !== undefined) query.append('year', String(params.year));
+  if (params.month !== undefined) query.append('month', String(params.month));
+  if (params.limit !== undefined) query.append('limit', String(params.limit));
+  const response = await axiosInstance.get(
+    `/reports/top-stores${query.toString() ? `?${query.toString()}` : ''}`,
+  );
+  const payload = unwrapData<{ stores?: TopStoreItem[]; items?: TopStoreItem[] } | TopStoreItem[]>(response);
+  return Array.isArray(payload) ? payload : payload.stores ?? payload.items ?? [];
+}
+
+export async function getWeekdaySummary(params: {
+  year?: number;
+} = {}): Promise<WeekdaySummaryItem[]> {
+  const query = new URLSearchParams();
+  if (params.year !== undefined) query.append('year', String(params.year));
+  const response = await axiosInstance.get(
+    `/reports/weekday-summary${query.toString() ? `?${query.toString()}` : ''}`,
+  );
+  return unwrapData<WeekdaySummaryItem[]>(response);
 }
