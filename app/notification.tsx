@@ -5,8 +5,6 @@ import {
   markAllServerNotificationsRead,
   markServerNotificationRead,
   NotificationStatus,
-  sendTestNotification,
-  sendTestNotificationIn10s,
   ServerNotification,
 } from '@/services/notifications';
 import { Ionicons } from '@expo/vector-icons';
@@ -132,25 +130,6 @@ export default function NotificationScreen() {
         ))}
       </View>
 
-      {/* 개발 환경 전용 테스트 패널 */}
-      {__DEV__ && (
-        <View style={styles.devPanel}>
-          <Text style={styles.devLabel}>DEV — 알림 테스트</Text>
-          <View style={styles.devRow}>
-            <TouchableOpacity style={styles.devBtn} onPress={sendTestNotification}>
-              <Ionicons name="flash-outline" size={14} color={Colors.primary} />
-              <Text style={styles.devBtnText}>즉시 알림</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.devBtn} onPress={sendTestNotificationIn10s}>
-              <Ionicons name="timer-outline" size={14} color={Colors.warning} />
-              <Text style={[styles.devBtnText, { color: Colors.warning }]}>10초 후 알림</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.devHint}>
-            &quot;10초 후 알림&quot; 누른 뒤 홈 버튼으로 앱을 닫으면 백그라운드 알림을 테스트할 수 있어요
-          </Text>
-        </View>
-      )}
 
       {loading ? (
         <View style={styles.center}>
@@ -299,26 +278,4 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md, paddingTop: 80 },
   emptyText: { fontSize: 15, color: Colors.gray400 },
 
-  devPanel: {
-    backgroundColor: '#FFF8E1',
-    borderBottomWidth: 1,
-    borderBottomColor: '#FFE082',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    gap: 6,
-  },
-  devLabel: { fontSize: 11, fontWeight: '700', color: '#F57F17', letterSpacing: 0.5 },
-  devRow: { flexDirection: 'row', gap: Spacing.sm },
-  devBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-  },
-  devBtnText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
-  devHint: { fontSize: 11, color: '#795548', lineHeight: 16 },
 });
