@@ -1,5 +1,6 @@
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
+  deleteServerNotification,
   getServerNotifications,
   markAllServerNotificationsRead,
   markServerNotificationRead,
@@ -82,6 +83,19 @@ export default function NotificationScreen() {
     }
   };
 
+  const handleDelete = async (notificationId: string) => {
+    const previous = notifications;
+    setNotifications((prev) =>
+      prev.filter((item) => item.notificationId !== notificationId),
+    );
+    try {
+      await deleteServerNotification(notificationId);
+    } catch (e) {
+      console.log("알림 삭제 실패:", e);
+      setNotifications(previous);
+    }
+  };
+
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
@@ -147,6 +161,16 @@ export default function NotificationScreen() {
                     {item.title}
                   </Text>
                   <Text style={styles.cardDate}>{formatDate(item.notify_date)}</Text>
+                  <TouchableOpacity
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      void handleDelete(item.notificationId);
+                    }}
+                    style={styles.deleteBtn}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={Colors.error} />
+                  </TouchableOpacity>
                 </View>
                 <Text style={styles.cardBody2} numberOfLines={2}>{item.body}</Text>
                 {item.document_id && (
@@ -236,6 +260,7 @@ const styles = StyleSheet.create({
   cardTitle: { flex: 1, fontSize: 14, fontWeight: '500', color: Colors.gray700 },
   cardTitleUnread: { fontWeight: '700', color: Colors.gray900 },
   cardDate: { fontSize: 12, color: Colors.gray400, flexShrink: 0 },
+  deleteBtn: { padding: 2 },
   cardBody2: { fontSize: 13, color: Colors.gray500, lineHeight: 18 },
   docTag: {
     flexDirection: 'row',

@@ -57,6 +57,7 @@ export type DocumentItem = {
   renewalDate?: string | null;
   aiStatus?: DocumentAiStatus;
   isFavorite?: boolean;
+  isSecured?: boolean;
   isConfirmed?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -116,6 +117,26 @@ export type UpdateDocumentBody = {
   aiStatus?: DocumentAiStatus;
 };
 
+export type UpdateDocumentCategoryBody = {
+  name?: string;
+  defaultNotifyOffsetDays?: number | null;
+  isSecured?: boolean;
+  description?: string;
+};
+
+export type DocumentUnlockResponse = {
+  unlockToken?: string;
+  token?: string;
+  expiresAt?: string;
+};
+
+export type DocumentAiStatusResponse = {
+  documentId?: string;
+  aiStatus: DocumentAiStatus;
+  progress?: number;
+  message?: string;
+};
+
 // TODO [배포 전]: 인증 방식 확정 후 아래 두 가지 중 하나로 교체
 //   A) 쿠키 방식 유지 시 → react-native-cookies 라이브러리 설치 후 쿠키 수동 관리
 //      (React Native의 fetch는 브라우저와 달리 Set-Cookie를 자동 저장하지 않음)
@@ -155,6 +176,22 @@ export async function getDocumentCategories() {
     "/documents/categories",
     {
       method: "GET",
+    }
+  );
+
+  return response.data;
+}
+
+// PATCH /documents/categories/:categoryId
+export async function updateDocumentCategory(
+  categoryId: number,
+  body: UpdateDocumentCategoryBody
+) {
+  const response = await documentRequest<ApiResponse<DocumentCategory>>(
+    `/documents/categories/${categoryId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
     }
   );
 
@@ -220,6 +257,31 @@ export async function getDocuments(params: GetDocumentsParams = {}) {
 export async function getDocumentDetail(documentId: string) {
   const response = await documentRequest<ApiResponse<DocumentItem>>(
     `/documents/${documentId}`,
+    {
+      method: "GET",
+    }
+  );
+
+  return response.data;
+}
+
+// POST /documents/:documentId/unlock
+export async function unlockDocument(documentId: string, pinNumber: string) {
+  const response = await documentRequest<ApiResponse<DocumentUnlockResponse>>(
+    `/documents/${documentId}/unlock`,
+    {
+      method: "POST",
+      body: JSON.stringify({ pinNumber }),
+    }
+  );
+
+  return response.data;
+}
+
+// GET /documents/:documentId/ai-status
+export async function getDocumentAiStatus(documentId: string) {
+  const response = await documentRequest<ApiResponse<DocumentAiStatusResponse>>(
+    `/documents/${documentId}/ai-status`,
     {
       method: "GET",
     }

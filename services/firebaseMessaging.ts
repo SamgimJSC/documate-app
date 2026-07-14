@@ -28,6 +28,8 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
+const DEVICE_TOKEN_ID_KEY = "notificationDeviceTokenId";
+
 // ── Section 1: expo-notifications 기반 (현재 활성) ───────────────────────────
 //
 // Expo Go에서 동작합니다.
@@ -218,8 +220,29 @@ export async function registerFcmTokenToServer(fcmToken: string) {
     default: "WEB",
   });
 
-  return axiosInstance.post("/notifications/device-tokens", {
+  const response = await axiosInstance.post("/notifications/device-tokens", {
     token: fcmToken,
     platform,
   });
+  const payload = (response as any)?.data ?? response;
+  const tokenId =
+    payload?.tokenId ??
+    payload?.deviceTokenId ??
+    payload?.id ??
+    payload?.notificationDeviceTokenId;
+  if (tokenId) {
+    await SecureStore.setItemAsync(DEVICE_TOKEN_ID_KEY, String(tokenId));
+  }
+  return response;
+}
+
+export async function unregisterFcmTokenFromServer(): Promise<void> {
+  const tokenId = await SecureStore.getItemAsync(DEVICE_TOKEN_ID_KEY);
+  if (!tokenId) return;
+
+  try {
+    await axiosInstance.delete(`/notifications/device-tokens/${tokenId}`);
+  } finally {
+    await SecureStore.deleteItemAsync(DEVICE_TOKEN_ID_KEY);
+  }
 }

@@ -72,15 +72,29 @@ export async function getRnbBiometricType(): Promise<RnbBiometricType> {
 export async function createBiometricKeyPair(): Promise<{
   biometricType: RnbBiometricType;
   publicKey: string;
+}>;
+export async function createBiometricKeyPair(options: {
+  requirePrompt?: boolean;
+}): Promise<{
+  biometricType: RnbBiometricType;
+  publicKey: string;
+}>;
+export async function createBiometricKeyPair(options?: {
+  requirePrompt?: boolean;
+}): Promise<{
+  biometricType: RnbBiometricType;
+  publicKey: string;
 }> {
   const biometrics = getBiometrics();
   const biometricType = await getRnbBiometricType();
-  const prompt = await biometrics.simplePrompt({
-    promptMessage: "Register biometric authentication",
-    cancelButtonText: "Cancel",
-  });
-  if (!prompt.success) {
-    throw new Error("BIOMETRIC_CANCELLED");
+  if (options?.requirePrompt !== false) {
+    const prompt = await biometrics.simplePrompt({
+      promptMessage: "Register biometric authentication",
+      cancelButtonText: "Cancel",
+    });
+    if (!prompt.success) {
+      throw new Error("BIOMETRIC_CANCELLED");
+    }
   }
 
   const { keysExist } = await biometrics.biometricKeysExist();

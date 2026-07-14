@@ -1,10 +1,26 @@
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from "@/constants/theme";
+import {
+  MonthlySpendItem,
+  TopStoreItem,
+  WeekdaySummaryItem,
+  getMonthlySpend,
+  getTopStores,
+  getWeekdaySummary,
+} from "@/services/reports";
+import {
+  CardRecommendation,
+  getCardRecommendations,
+} from "@/services/cards";
+import { getSubscription } from "@/services/subscriptions";
 import { useReceiptStore } from "@/stores/receipt-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { Ionicons } from "@expo/vector-icons";
+import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Platform,
   ScrollView,
@@ -20,6 +36,10 @@ const CHART_HEIGHT = 148;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_WIDTH = Math.max(260, SCREEN_WIDTH - Spacing.lg * 4);
 const AI_CONFIDENCE = 78;
+const ANNUAL_BAR_HEIGHT = 96;
+const MONTH_LABELS = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
+const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+const WEB_REPORT_URL = `${process.env.EXPO_PUBLIC_WEB_URL?.replace(/\/+$/, "") ?? ""}/finance/report`;
 
 const CATEGORY_LABELS: Record<string, string> = {
   식비: "식비",
@@ -68,8 +88,54 @@ function offsetMonth(base: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function getReportMonth(value: string | number): number {
+  if (typeof value === "number") return value;
+  const match = value.match(/(\d{1,2})$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function getStoreName(store: TopStoreItem): string {
+  return store.storeName ?? store.store_name ?? store.name ?? "이름 없는 매장";
+}
+
+function getStoreAmount(store: TopStoreItem): number {
+  return Number(
+    store.totalSpend ??
+      store.total_spend ??
+      store.totalAmount ??
+      store.total_amount ??
+      store.amount ??
+      0,
+  );
+}
+
+function getStoreCount(store: TopStoreItem): number {
+  return Number(
+    store.visitCount ??
+      store.visit_count ??
+      store.receiptCount ??
+      store.receipt_count ??
+      store.count ??
+      0,
+  );
+}
+
+function getSavingRate(category: string): number {
+  if (category.includes("식비") || category.includes("카페") || category.includes("마트")) {
+    return 0.2;
+  }
+  if (category.includes("의료") || category.includes("뷰티") || category.includes("건강")) {
+    return 0.15;
+  }
+  if (category.includes("교통") || category.includes("통신") || category.includes("구독")) {
+    return 0.1;
+  }
+  return 0.1;
+}
+
 export default function ReceiptScreen() {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
   const {
     receipts: allReceipts,
     fetchReceipts,
@@ -78,11 +144,34 @@ export default function ReceiptScreen() {
     isLoading,
   } = useReceiptStore();
   const [showAllReceipts, setShowAllReceipts] = useState(false);
+  const [serverMonthlySpend, setServerMonthlySpend] = useState<MonthlySpendItem[]>([]);
+  const [serverTopStores, setServerTopStores] = useState<TopStoreItem[]>([]);
+  const [serverWeekdaySummary, setServerWeekdaySummary] = useState<WeekdaySummaryItem[]>([]);
+  const [annualReportLoading, setAnnualReportLoading] = useState(false);
+  const [topCardRecommendation, setTopCardRecommendation] = useState<CardRecommendation | null>(null);
+  const [cardRecommendationLoading, setCardRecommendationLoading] = useState(false);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<"free" | "pro" | null>(null);
+
+  const handleOpenWebReport = async () => {
+    if (!process.env.EXPO_PUBLIC_WEB_URL) {
+      Alert.alert("웹 주소 확인 필요", "EXPO_PUBLIC_WEB_URL이 설정되어 있지 않습니다.");
+      return;
+    }
+
+    try {
+      await Linking.openURL(WEB_REPORT_URL);
+    } catch (error) {
+      console.log("웹 소비 리포트 열기 실패:", error);
+      Alert.alert("페이지 열기 실패", "웹 소비 리포트 페이지를 열 수 없습니다.");
+    }
+  };
 
   const today = new Date();
   const thisMonth = today.toISOString().slice(0, 7);
   const [selectedMonth, setSelectedMonth] = useState(thisMonth);
   const currentMonth = selectedMonth;
+  const selectedYear = Number(currentMonth.slice(0, 4));
+  const isPro = user?.plan === "pro" || subscriptionPlan === "pro";
   const daysInMonth = getDaysInMonth(currentMonth);
 
   const handlePrevMonth = () => setSelectedMonth((m) => offsetMonth(m, -1));
@@ -95,6 +184,88 @@ export default function ReceiptScreen() {
   useEffect(() => {
     fetchReceipts();
   }, [fetchReceipts]);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!user) {
+      setSubscriptionPlan(null);
+      return;
+    }
+
+    const syncPlanFromSubscription = async () => {
+      try {
+        const subscription = await getSubscription();
+        if (!mounted) return;
+        const nextPlan = subscription.status === "ACTIVE" ? "pro" : "free";
+        setSubscriptionPlan(nextPlan);
+        if (nextPlan === "pro" && user.plan !== "pro") {
+          useAuthStore.setState({
+            user: { ...user, plan: "pro" },
+          });
+        }
+      } catch (error) {
+        if (!mounted) return;
+        console.log("구독 상태 조회 실패:", error);
+        setSubscriptionPlan(null);
+      }
+    };
+
+    void syncPlanFromSubscription();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id, user?.plan]);
+
+  useEffect(() => {
+    if (!isPro) return;
+
+    const loadAnnualReports = async () => {
+      const selectedMonthNumber = Number(currentMonth.slice(5, 7));
+      setAnnualReportLoading(true);
+      try {
+        const [monthlySpend, topStores, weekdaySummary] = await Promise.all([
+          getMonthlySpend({ year: selectedYear }),
+          getTopStores({ year: selectedYear, month: selectedMonthNumber, limit: 5 }),
+          getWeekdaySummary({ year: selectedYear }),
+        ]);
+        setServerMonthlySpend(monthlySpend);
+        setServerTopStores(topStores);
+        setServerWeekdaySummary(weekdaySummary);
+      } catch (error) {
+        console.log("연간 리포트 조회 실패:", error);
+        setServerMonthlySpend([]);
+        setServerTopStores([]);
+        setServerWeekdaySummary([]);
+      } finally {
+        setAnnualReportLoading(false);
+      }
+    };
+
+    void loadAnnualReports();
+  }, [currentMonth, isPro, selectedYear]);
+
+  useEffect(() => {
+    if (!isPro) {
+      setTopCardRecommendation(null);
+      return;
+    }
+
+    const loadTopCardRecommendation = async () => {
+      setCardRecommendationLoading(true);
+      try {
+        const recommendations = await getCardRecommendations();
+        setTopCardRecommendation(recommendations[0] ?? null);
+      } catch (error) {
+        console.log("카드 추천 요약 조회 실패:", error);
+        setTopCardRecommendation(null);
+      } finally {
+        setCardRecommendationLoading(false);
+      }
+    };
+
+    void loadTopCardRecommendation();
+  }, [isPro]);
 
   const receipts = getReceiptsForMonth(currentMonth);
   const monthlyTotal = receipts.reduce(
@@ -153,6 +324,142 @@ export default function ReceiptScreen() {
       }))
       .sort((a, b) => b.amount - a.amount);
   }, [currentMonth, getCategoryBreakdown, monthlyTotal]);
+
+  const annualReport = useMemo(() => {
+    const monthlyTotals = Array.from({ length: 12 }, (_, index) => ({
+      month: index + 1,
+      label: MONTH_LABELS[index],
+      amount: 0,
+    }));
+
+    if (serverMonthlySpend.length > 0) {
+      serverMonthlySpend.forEach((item) => {
+        const month = getReportMonth(item.month);
+        if (month >= 1 && month <= 12) {
+          monthlyTotals[month - 1].amount = Number(item.amount);
+        }
+      });
+    } else {
+      allReceipts.forEach((receipt) => {
+        const receiptYear = Number(receipt.date.slice(0, 4));
+        const receiptMonth = Number(receipt.date.slice(5, 7));
+        if (receiptYear === selectedYear && receiptMonth >= 1 && receiptMonth <= 12) {
+          monthlyTotals[receiptMonth - 1].amount += Number(receipt.amount);
+        }
+      });
+    }
+
+    const annualTotal = monthlyTotals.reduce((sum, item) => sum + item.amount, 0);
+    const activeMonths = monthlyTotals.filter((item) => item.amount > 0);
+    const average = activeMonths.length > 0 ? Math.round(annualTotal / activeMonths.length) : 0;
+    const peakMonth = [...monthlyTotals].sort((a, b) => b.amount - a.amount)[0];
+    const quietMonth = [...activeMonths].sort((a, b) => a.amount - b.amount)[0] ?? null;
+    const topMonths = [...monthlyTotals]
+      .filter((item) => item.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 3);
+    const peakOverAverageRate =
+      average > 0 && peakMonth.amount > average
+        ? Math.round(((peakMonth.amount - average) / average) * 100)
+        : 0;
+    const maxAmount = Math.max(...monthlyTotals.map((item) => item.amount), 1);
+    const weekdayTotals = Array.from({ length: 7 }, (_, index) => ({
+      weekday: index,
+      label: WEEKDAY_LABELS[index],
+      amount: 0,
+    }));
+
+    if (serverWeekdaySummary.length > 0) {
+      serverWeekdaySummary.forEach((item) => {
+        if (item.weekday >= 0 && item.weekday <= 6) {
+          weekdayTotals[item.weekday].amount = Number(item.amount);
+        }
+      });
+    } else {
+      allReceipts.forEach((receipt) => {
+        const receiptYear = Number(receipt.date.slice(0, 4));
+        if (receiptYear !== selectedYear) return;
+        const date = new Date(receipt.date);
+        if (Number.isNaN(date.getTime())) return;
+        weekdayTotals[date.getDay()].amount += Number(receipt.amount);
+      });
+    }
+    const topWeekday = [...weekdayTotals].sort((a, b) => b.amount - a.amount)[0];
+    const weekdayMaxAmount = Math.max(...weekdayTotals.map((item) => item.amount), 1);
+    const categoryMap = new Map<string, number>();
+
+    allReceipts.forEach((receipt) => {
+      const receiptYear = Number(receipt.date.slice(0, 4));
+      if (receiptYear !== selectedYear) return;
+      const label = getCategoryLabel(receipt.category);
+      categoryMap.set(label, (categoryMap.get(label) ?? 0) + Number(receipt.amount));
+    });
+
+    const categoryTotals = [...categoryMap.entries()]
+      .map(([category, amount], index) => ({
+        category,
+        amount,
+        percent: annualTotal > 0 ? Math.round((amount / annualTotal) * 100) : 0,
+        color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
+      }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 3);
+
+    const savingOpportunities = categoryTotals.map((item) => {
+      const rate = getSavingRate(item.category);
+      return {
+        ...item,
+        rate,
+        saving: Math.round(item.amount * rate),
+      };
+    });
+    const totalPotentialSaving = savingOpportunities.reduce(
+      (sum, item) => sum + item.saving,
+      0,
+    );
+
+    const insight =
+      annualTotal === 0
+        ? "아직 분석할 영수증 데이터가 없습니다."
+        : peakOverAverageRate >= 50
+          ? `${peakMonth.label} 지출이 월평균보다 ${peakOverAverageRate}% 높아요. 해당 달의 큰 결제나 반복 소비를 점검해보세요.`
+          : peakOverAverageRate >= 20
+            ? `${peakMonth.label} 지출이 평소보다 눈에 띄게 높아요. 소비가 몰린 항목을 확인해보면 좋아요.`
+            : "연간 지출이 비교적 고르게 분포되어 있어요. 큰 변동 없이 소비가 관리되고 있습니다.";
+    const coachingTips =
+      annualTotal === 0
+        ? ["영수증이 쌓이면 소비가 몰리는 월과 절약 포인트를 자동으로 보여드릴게요."]
+        : [
+          peakOverAverageRate > 0
+            ? `${peakMonth.label} 지출이 월평균보다 ${peakOverAverageRate}% 높았어요. 해당 월의 반복 결제와 큰 금액 영수증부터 확인해보세요.`
+            : "월별 지출 변동이 크지 않아요. 이 패턴을 유지하면서 고정비만 가볍게 점검해보세요.",
+          categoryTotals[0]
+            ? `${categoryTotals[0].category} 지출이 연간 소비의 ${categoryTotals[0].percent}%를 차지해요. 이 항목에서 작은 절약 목표를 잡는 게 효과적이에요.`
+            : "카테고리 데이터가 더 쌓이면 많이 쓰는 항목을 기준으로 코칭을 보여드릴게요.",
+          topWeekday.amount > 0
+            ? `${topWeekday.label}요일에 지출이 가장 많았어요. 해당 요일 전후의 소비 루틴을 확인해보세요.`
+            : "요일별 지출 데이터가 더 쌓이면 소비 루틴을 분석해드릴게요.",
+        ];
+
+    return {
+      monthlyTotals,
+      annualTotal,
+      average,
+      peakMonth,
+      quietMonth,
+      topMonths,
+      peakOverAverageRate,
+      maxAmount,
+      weekdayTotals,
+      topWeekday,
+      weekdayMaxAmount,
+      categoryTotals,
+      savingOpportunities,
+      totalPotentialSaving,
+      coachingTips,
+      insight,
+    };
+  }, [allReceipts, selectedYear, serverMonthlySpend, serverWeekdaySummary]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -265,6 +572,258 @@ export default function ReceiptScreen() {
             <Text style={styles.axisText}>15일</Text>
             <Text style={styles.axisText}>{daysInMonth}일</Text>
           </View>
+        </View>
+
+        <View style={[styles.section, styles.annualSection]}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.annualTitleBlock}>
+              <Text style={styles.sectionTitle}>{selectedYear} 연간 소비 리포트</Text>
+              <Text style={styles.annualSubtitle}>월별 지출 편차를 분석해 소비가 몰린 달을 찾아요</Text>
+            </View>
+            <View style={styles.proPill}>
+              <Text style={styles.proPillText}>PRO</Text>
+            </View>
+          </View>
+
+          {isPro ? (
+            <>
+              <View style={styles.annualSummaryGrid}>
+                <View style={styles.annualMetric}>
+                  <Text style={styles.annualMetricLabel}>연간 총 지출</Text>
+                  <Text style={styles.annualMetricValue} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatWon(annualReport.annualTotal)}
+                  </Text>
+                </View>
+                <View style={styles.annualMetric}>
+                  <Text style={styles.annualMetricLabel}>활동 월평균</Text>
+                  <Text style={styles.annualMetricValue} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatWon(annualReport.average)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.annualHighlight}>
+                <View style={styles.annualHighlightIcon}>
+                  <Ionicons name="trending-up-outline" size={18} color={Colors.warning} />
+                </View>
+                <View style={styles.annualHighlightText}>
+                  <Text style={styles.annualHighlightTitle}>
+                    {annualReport.peakMonth.label} 지출이 가장 높아요
+                  </Text>
+                  <Text style={styles.annualHighlightDesc}>
+                    {annualReport.peakOverAverageRate > 0
+                      ? `월평균 대비 ${annualReport.peakOverAverageRate}% 높음 · ${formatWon(annualReport.peakMonth.amount)}`
+                      : `${formatWon(annualReport.peakMonth.amount)} 사용`}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.annualChart}>
+                {annualReport.monthlyTotals.map((item) => {
+                  const barHeight = Math.max(
+                    item.amount > 0 ? 8 : 2,
+                    (item.amount / annualReport.maxAmount) * ANNUAL_BAR_HEIGHT,
+                  );
+                  const isPeak = item.month === annualReport.peakMonth.month && item.amount > 0;
+                  return (
+                    <View key={item.month} style={styles.annualBarItem}>
+                      <View style={styles.annualBarTrack}>
+                        <View
+                          style={[
+                            styles.annualBarFill,
+                            {
+                              height: barHeight,
+                              backgroundColor: isPeak ? Colors.warning : Colors.primary,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[styles.annualBarLabel, isPeak && styles.annualBarLabelPeak]}>
+                        {item.month}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.annualInsightBox}>
+                <Ionicons name="sparkles-outline" size={17} color={Colors.pro} />
+                <Text style={styles.annualInsightText}>{annualReport.insight}</Text>
+              </View>
+
+              {annualReport.topMonths.length > 0 ? (
+                <View style={styles.topMonthList}>
+                  {annualReport.topMonths.map((item, index) => (
+                    <View key={item.month} style={styles.topMonthRow}>
+                      <Text style={styles.topMonthRank}>{index + 1}</Text>
+                      <Text style={styles.topMonthName}>{item.label}</Text>
+                      <View style={styles.topMonthBarTrack}>
+                        <View
+                          style={[
+                            styles.topMonthBarFill,
+                            { width: `${Math.max((item.amount / annualReport.maxAmount) * 100, 4)}%` as any },
+                          ]}
+                        />
+                      </View>
+                      <Text style={styles.topMonthAmount}>{formatWon(item.amount)}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              <View style={styles.reportSubSection}>
+                <Text style={styles.reportSubTitle}>연간 소비 패턴</Text>
+                {annualReport.categoryTotals.length > 0 ? (
+                  <View style={styles.patternList}>
+                    {annualReport.categoryTotals.map((item) => (
+                      <View key={item.category} style={styles.patternRow}>
+                        <View style={styles.patternHeader}>
+                          <Text style={styles.patternName}>{item.category}</Text>
+                          <Text style={styles.patternAmount}>
+                            {item.percent}% · {formatWon(item.amount)}
+                          </Text>
+                        </View>
+                        <View style={styles.patternTrack}>
+                          <View
+                            style={[
+                              styles.patternFill,
+                              {
+                                width: `${Math.max(item.percent, 6)}%` as any,
+                                backgroundColor: item.color,
+                              },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.reportEmptyText}>
+                    올해 등록된 영수증이 쌓이면 소비 패턴을 보여드릴게요.
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.savingBox}>
+                <View style={styles.savingHeader}>
+                  <Text style={styles.savingTitle}>절약 가능 금액</Text>
+                  <Text style={styles.savingTotal}>
+                    연 {formatWon(annualReport.totalPotentialSaving)}
+                  </Text>
+                </View>
+                {annualReport.savingOpportunities.length > 0 ? (
+                  annualReport.savingOpportunities.map((item) => (
+                    <View key={item.category} style={styles.savingRow}>
+                      <View style={styles.savingInfo}>
+                        <Text style={styles.savingCategory}>{item.category}</Text>
+                        <Text style={styles.savingDesc}>
+                          월별 소비 루틴에서 {Math.round(item.rate * 100)}% 줄이면
+                        </Text>
+                      </View>
+                      <Text style={styles.savingAmount}>
+                        {formatWon(item.saving)}
+                      </Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.reportEmptyText}>
+                    절약 시뮬레이션에 필요한 소비 데이터가 아직 부족해요.
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.coachingBox}>
+                <View style={styles.coachingHeader}>
+                  <Ionicons name="bulb-outline" size={17} color={Colors.primary} />
+                  <Text style={styles.coachingTitle}>AI 소비 코칭</Text>
+                </View>
+                {annualReport.coachingTips.map((tip, index) => (
+                  <View key={`${tip}-${index}`} style={styles.coachingTipRow}>
+                    <View style={styles.coachingTipDot} />
+                    <Text style={styles.coachingTipText}>{tip}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {annualReportLoading ? (
+                <View style={styles.reportLoadingRow}>
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                  <Text style={styles.reportLoadingText}>서버 리포트를 불러오는 중입니다</Text>
+                </View>
+              ) : null}
+
+              {serverTopStores.length > 0 ? (
+                <View style={styles.reportSubSection}>
+                  <Text style={styles.reportSubTitle}>TOP 방문 매장</Text>
+                  {serverTopStores.map((store, index) => (
+                    <View key={`${getStoreName(store)}-${index}`} style={styles.storeRow}>
+                      <Text style={styles.storeRank}>{index + 1}</Text>
+                      <View style={styles.storeInfo}>
+                        <Text style={styles.storeName} numberOfLines={1}>
+                          {getStoreName(store)}
+                        </Text>
+                        <Text style={styles.storeMeta}>{getStoreCount(store)}회 방문</Text>
+                      </View>
+                      <Text style={styles.storeAmount}>{formatWon(getStoreAmount(store))}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              <View style={styles.reportSubSection}>
+                <View style={styles.weekdayHeader}>
+                  <Text style={styles.reportSubTitle}>요일별 지출</Text>
+                  <Text style={styles.weekdayPeak}>
+                    {annualReport.topWeekday.label}요일 최다
+                  </Text>
+                </View>
+                <View style={styles.weekdayChart}>
+                  {annualReport.weekdayTotals.map((item) => {
+                    const width = `${Math.max((item.amount / annualReport.weekdayMaxAmount) * 100, item.amount > 0 ? 6 : 2)}%` as any;
+                    return (
+                      <View key={item.weekday} style={styles.weekdayRow}>
+                        <Text style={styles.weekdayLabel}>{item.label}</Text>
+                        <View style={styles.weekdayTrack}>
+                          <View style={[styles.weekdayFill, { width }]} />
+                        </View>
+                        <Text style={styles.weekdayAmount}>{formatWon(item.amount)}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.webGuideBox}
+                onPress={() => void handleOpenWebReport()}
+                activeOpacity={0.7}
+                accessibilityRole="link"
+              >
+                <Ionicons name="desktop-outline" size={17} color={Colors.gray500} />
+                <Text style={styles.webGuideText}>
+                  더 자세한 내역은 web에서 확인해주세요.
+                </Text>
+                <Ionicons name="open-outline" size={15} color={Colors.primary} />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.annualLocked}
+              onPress={() => router.push("/pro-promotion" as any)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.annualLockedIcon}>
+                <Ionicons name="lock-closed-outline" size={20} color={Colors.pro} />
+              </View>
+              <View style={styles.annualLockedText}>
+                <Text style={styles.annualLockedTitle}>Pro에서 연간 소비 리포트를 볼 수 있어요</Text>
+                <Text style={styles.annualLockedDesc}>
+                  지출이 몰린 달, 월평균 대비 초과율, 연간 소비 패턴을 자동으로 분석합니다.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.pro} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -384,30 +943,59 @@ export default function ReceiptScreen() {
           )}
         </View>
 
-        {/* 카드 추천 배너 */}
+        {/* 카드 추천 요약 */}
         <TouchableOpacity
           style={styles.cardRecommendBanner}
           onPress={() => router.push('/card-recommendation' as any)}
           activeOpacity={0.85}
         >
-          <View style={styles.cardRecommendLeft}>
-            <Ionicons name="card-outline" size={22} color={Colors.pro} />
-            <View style={styles.cardRecommendText}>
-              <View style={styles.cardRecommendTitleRow}>
-                <Text style={styles.cardRecommendTitle}>카드 추천 보기</Text>
-                <View style={styles.cardRecommendProBadge}>
-                  <Text style={styles.cardRecommendProText}>PRO</Text>
-                </View>
+          <View style={styles.cardRecommendHeader}>
+            <View style={styles.cardRecommendTitleRow}>
+              <Ionicons name="card-outline" size={19} color={Colors.pro} />
+              <Text style={styles.cardRecommendTitle}>
+                {topCardRecommendation ? "오늘의 추천 카드" : "카드 추천"}
+              </Text>
+              <View style={styles.cardRecommendProBadge}>
+                <Text style={styles.cardRecommendProText}>PRO</Text>
               </View>
-              <Text style={styles.cardRecommendSub}>주요 소비 카테고리를 기반으로 혜택이 높은 카드를 확인할 수 있습니다.</Text>
             </View>
+            {cardRecommendationLoading ? (
+              <ActivityIndicator size="small" color={Colors.pro} />
+            ) : null}
           </View>
-          <TouchableOpacity
-            style={styles.cardRecommendBtn}
-            onPress={() => router.push('/card-recommendation' as any)}
-          >
-            <Text style={styles.cardRecommendBtnText}>추천 보기</Text>
-          </TouchableOpacity>
+
+          {topCardRecommendation ? (
+            <View style={styles.cardRecommendPreview}>
+              <View style={styles.cardRecommendIcon}>
+                <Ionicons name="sparkles" size={18} color={Colors.white} />
+              </View>
+              <View style={styles.cardRecommendText}>
+                <Text style={styles.cardRecommendName} numberOfLines={1}>
+                  {topCardRecommendation.cardName ?? "추천 카드"}
+                </Text>
+                <Text style={styles.cardRecommendIssuer} numberOfLines={1}>
+                  {topCardRecommendation.issuer ?? "카드사 정보 없음"}
+                  {topCardRecommendation.matchScore !== null
+                    ? ` · AI ${Math.round(topCardRecommendation.matchScore ?? 0)}점`
+                    : ""}
+                </Text>
+                {topCardRecommendation.reason ? (
+                  <Text style={styles.cardRecommendReason} numberOfLines={2}>
+                    {topCardRecommendation.reason}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.cardRecommendSub}>
+              주요 소비 카테고리를 기반으로 혜택이 높은 카드를 확인할 수 있습니다.
+            </Text>
+          )}
+
+          <View style={styles.cardRecommendFooter}>
+            <Text style={styles.cardRecommendBtnText}>나에게 맞는 카드 더 보기</Text>
+            <Ionicons name="chevron-forward" size={15} color={Colors.white} />
+          </View>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -508,6 +1096,313 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 15, fontWeight: "800", color: Colors.gray900 },
   sectionCount: { fontSize: 13, color: Colors.gray500 },
+  annualSection: { borderWidth: 1, borderColor: Colors.proLight },
+  annualTitleBlock: { flex: 1, gap: 3 },
+  annualSubtitle: { fontSize: 12, color: Colors.gray500, lineHeight: 16 },
+  proPill: {
+    borderRadius: Radius.full,
+    backgroundColor: Colors.pro,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  proPillText: { fontSize: 10, fontWeight: "900", color: Colors.white },
+  annualSummaryGrid: { flexDirection: "row", gap: Spacing.sm },
+  annualMetric: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.gray50,
+    padding: Spacing.md,
+    justifyContent: "space-between",
+  },
+  annualMetricLabel: { fontSize: 12, color: Colors.gray500 },
+  annualMetricValue: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: Colors.gray900,
+    includeFontPadding: false,
+  },
+  annualHighlight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.warningLight,
+    padding: Spacing.md,
+  },
+  annualHighlightIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  annualHighlightText: { flex: 1, minWidth: 0 },
+  annualHighlightTitle: { fontSize: 14, fontWeight: "800", color: Colors.gray900 },
+  annualHighlightDesc: { marginTop: 2, fontSize: 12, color: Colors.gray600 },
+  annualChart: {
+    height: ANNUAL_BAR_HEIGHT + 24,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 4,
+  },
+  annualBarItem: {
+    flex: 1,
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 5,
+  },
+  annualBarTrack: {
+    width: "100%",
+    maxWidth: 16,
+    height: ANNUAL_BAR_HEIGHT,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.gray100,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  annualBarFill: {
+    width: "100%",
+    borderTopLeftRadius: Radius.full,
+    borderTopRightRadius: Radius.full,
+  },
+  annualBarLabel: { fontSize: 10, color: Colors.gray400, fontWeight: "700" },
+  annualBarLabelPeak: { color: Colors.warning },
+  annualInsightBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.proLight,
+    padding: Spacing.md,
+  },
+  annualInsightText: { flex: 1, fontSize: 13, lineHeight: 19, color: Colors.gray800 },
+  topMonthList: { gap: Spacing.sm },
+  topMonthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  topMonthRank: {
+    width: 22,
+    height: 22,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryLight,
+    color: Colors.primary,
+    textAlign: "center",
+    lineHeight: 22,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  topMonthName: { width: 36, fontSize: 13, fontWeight: "800", color: Colors.gray700 },
+  topMonthBarTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.gray100,
+    overflow: "hidden",
+  },
+  topMonthBarFill: { height: "100%", borderRadius: Radius.full, backgroundColor: Colors.primary },
+  topMonthAmount: {
+    width: 86,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.gray900,
+    textAlign: "right",
+  },
+  reportLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.gray50,
+    padding: Spacing.sm,
+  },
+  reportLoadingText: { fontSize: 12, color: Colors.gray500 },
+  reportSubSection: {
+    gap: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray100,
+    paddingTop: Spacing.md,
+  },
+  reportSubTitle: { fontSize: 14, fontWeight: "800", color: Colors.gray900 },
+  reportEmptyText: { fontSize: 12, lineHeight: 17, color: Colors.gray500 },
+  patternList: { gap: Spacing.sm },
+  patternRow: { gap: 6 },
+  patternHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  patternName: { fontSize: 13, fontWeight: "800", color: Colors.gray800 },
+  patternAmount: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.gray500,
+    textAlign: "right",
+  },
+  patternTrack: {
+    height: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.gray100,
+    overflow: "hidden",
+  },
+  patternFill: { height: "100%", borderRadius: Radius.full },
+  savingBox: {
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primaryLight,
+    padding: Spacing.md,
+  },
+  savingHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  savingTitle: { fontSize: 14, fontWeight: "900", color: Colors.gray900 },
+  savingTotal: {
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: "900",
+    color: Colors.primary,
+    textAlign: "right",
+  },
+  savingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.white,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 9,
+  },
+  savingInfo: { flex: 1, minWidth: 0 },
+  savingCategory: { fontSize: 13, fontWeight: "800", color: Colors.gray800 },
+  savingDesc: { marginTop: 2, fontSize: 11, lineHeight: 15, color: Colors.gray500 },
+  savingAmount: {
+    width: 86,
+    fontSize: 12,
+    fontWeight: "900",
+    color: Colors.primary,
+    textAlign: "right",
+  },
+  coachingBox: {
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.primaryLight,
+    backgroundColor: Colors.white,
+    padding: Spacing.md,
+  },
+  coachingHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  coachingTitle: { fontSize: 14, fontWeight: "900", color: Colors.gray900 },
+  coachingTipRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+  },
+  coachingTipDot: {
+    width: 5,
+    height: 5,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+    marginTop: 7,
+  },
+  coachingTipText: { flex: 1, fontSize: 12, lineHeight: 18, color: Colors.gray700 },
+  storeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  storeRank: {
+    width: 22,
+    height: 22,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.proLight,
+    color: Colors.pro,
+    textAlign: "center",
+    lineHeight: 22,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  storeInfo: { flex: 1, minWidth: 0 },
+  storeName: { fontSize: 13, fontWeight: "800", color: Colors.gray800 },
+  storeMeta: { marginTop: 1, fontSize: 11, color: Colors.gray400 },
+  storeAmount: {
+    width: 88,
+    fontSize: 12,
+    fontWeight: "900",
+    color: Colors.gray900,
+    textAlign: "right",
+  },
+  weekdayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.md,
+  },
+  weekdayPeak: { fontSize: 12, fontWeight: "800", color: Colors.pro },
+  weekdayChart: { gap: 7 },
+  weekdayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  weekdayLabel: { width: 18, fontSize: 12, fontWeight: "800", color: Colors.gray600 },
+  weekdayTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.gray100,
+    overflow: "hidden",
+  },
+  weekdayFill: { height: "100%", borderRadius: Radius.full, backgroundColor: Colors.pro },
+  weekdayAmount: {
+    width: 78,
+    fontSize: 11,
+    fontWeight: "800",
+    color: Colors.gray700,
+    textAlign: "right",
+  },
+  webGuideBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray100,
+    paddingTop: Spacing.md,
+  },
+  webGuideText: { fontSize: 12, fontWeight: "700", color: Colors.gray500 },
+  annualLocked: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.proLight,
+    padding: Spacing.md,
+  },
+  annualLockedIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  annualLockedText: { flex: 1, minWidth: 0, gap: 2 },
+  annualLockedTitle: { fontSize: 14, fontWeight: "800", color: Colors.gray900 },
+  annualLockedDesc: { fontSize: 12, lineHeight: 17, color: Colors.gray600 },
   lineChartFrame: {
     height: CHART_HEIGHT,
     overflow: "hidden",
@@ -616,16 +1511,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     padding: Spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     gap: Spacing.sm,
     borderWidth: 1,
     borderColor: Colors.proLight,
     ...cardShadow,
   },
-  cardRecommendLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: Spacing.sm },
-  cardRecommendText: { flex: 1, gap: 2 },
+  cardRecommendHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
   cardRecommendTitleRow: { flexDirection: "row", alignItems: "center", gap: Spacing.xs },
   cardRecommendTitle: { fontSize: 14, fontWeight: "700", color: Colors.gray900 },
   cardRecommendProBadge: {
@@ -635,12 +1531,36 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   cardRecommendProText: { fontSize: 10, fontWeight: "800", color: Colors.white },
+  cardRecommendPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.proLight,
+    padding: Spacing.sm,
+  },
+  cardRecommendIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.pro,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardRecommendText: { flex: 1, minWidth: 0, gap: 2 },
+  cardRecommendName: { fontSize: 14, fontWeight: "800", color: Colors.gray900 },
+  cardRecommendIssuer: { fontSize: 12, color: Colors.gray500 },
+  cardRecommendReason: { marginTop: 2, fontSize: 12, lineHeight: 16, color: Colors.gray700 },
   cardRecommendSub: { fontSize: 12, color: Colors.gray500, lineHeight: 16 },
-  cardRecommendBtn: {
+  cardRecommendFooter: {
     backgroundColor: Colors.pro,
     borderRadius: Radius.md,
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
   },
   cardRecommendBtnText: { fontSize: 13, fontWeight: "700", color: Colors.white },
 });

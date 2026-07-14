@@ -22,6 +22,9 @@ export interface TempDocumentListItem {
   aiStatus: AiStatus;
   createdAt: string;
   files: TempFileItem[];
+  resultId?: string | null;
+  resultDocumentId?: string | null;
+  documentType?: TempDocumentType | null;
 }
 
 // processing-center.tsx 호환성 유지
@@ -85,6 +88,38 @@ export async function requestAiAnalysis(
   await axiosInstance.post(`/upload/${tempDocumentId}/ai`, { files });
 }
 
+export async function getTempDocumentDetail(
+  tempDocumentId: string,
+): Promise<TempDocumentListItem> {
+  const res = await axiosInstance.get(`/upload/${tempDocumentId}`);
+  return (res as any)?.data ?? res;
+}
+
+export async function reorderTempFiles(
+  tempDocumentId: string,
+  files: Array<{ id: string; pageNo: number }>,
+): Promise<TempDocumentListItem> {
+  const res = await axiosInstance.patch(`/upload/${tempDocumentId}/reorder`, {
+    files,
+  });
+  return (res as any)?.data ?? res;
+}
+
+export async function deleteTempDocument(tempDocumentId: string): Promise<void> {
+  await axiosInstance.delete(`/upload/${tempDocumentId}`);
+}
+
+export async function deleteAllTempFiles(tempDocumentId: string): Promise<void> {
+  await axiosInstance.delete(`/upload/${tempDocumentId}/files`);
+}
+
+export async function deleteTempFile(
+  tempDocumentId: string,
+  fileId: string,
+): Promise<void> {
+  await axiosInstance.delete(`/upload/${tempDocumentId}/files/${fileId}`);
+}
+
 // GET /upload/temp-list → 전체 임시 문서 상태 조회 (폴링용)
 export async function getTempDocumentList(): Promise<TempDocumentListItem[]> {
   const res = await axiosInstance.get('/upload/temp-list');
@@ -94,13 +129,18 @@ export async function getTempDocumentList(): Promise<TempDocumentListItem[]> {
 
 // processing-center.tsx 호환: 특정 tempDocumentId의 상태 반환
 export async function getTempDocumentStatus(tempDocumentId: string): Promise<AiStatusResponse> {
-  const list = await getTempDocumentList();
-  const found = list.find((item) => item.tempDocumentId === tempDocumentId);
+  let found: TempDocumentListItem | undefined;
+  try {
+    found = await getTempDocumentDetail(tempDocumentId);
+  } catch {
+    const list = await getTempDocumentList();
+    found = list.find((item) => item.tempDocumentId === tempDocumentId);
+  }
   return {
     tempDocumentId,
     aiStatus: found?.aiStatus ?? 'PENDING',
-    resultId: null,
-    documentType: null,
+    resultId: found?.resultId ?? found?.resultDocumentId ?? null,
+    documentType: found?.documentType ?? null,
   };
 }
 

@@ -171,10 +171,24 @@ export type CreateAlertBody = {
 export type UpdateAlertBody = Partial<CreateAlertBody>;
 
 export type NotificationSettings = {
-  email_enabled: boolean;
-  app_push_enabled: boolean;
-  web_push_enabled: boolean;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
 };
+
+function normalizeNotificationSettings(value: unknown): NotificationSettings {
+  const settings = (value ?? {}) as Record<string, unknown>;
+  return {
+    emailEnabled: Boolean(
+      settings.emailNotiEnabled ??
+        settings.email_noti_enabled ??
+        settings.emailEnabled ??
+        settings.email_enabled,
+    ),
+    pushEnabled: Boolean(
+      settings.pushEnabled ?? settings.appPushEnabled ?? settings.app_push_enabled,
+    ),
+  };
+}
 
 // ===============================
 // 서버 알림 API 연결
@@ -196,6 +210,16 @@ export type ServerNotification = {
   is_sent: boolean;
   is_read: boolean;
   created_at: string;
+};
+
+export type CreateNotificationBody = {
+  document_id?: string;
+  title: string;
+  body: string;
+  notify_date?: string;
+  channel_email?: boolean;
+  channel_app_push?: boolean;
+  channel_web_push?: boolean;
 };
 
 
@@ -262,6 +286,28 @@ export async function markAllServerNotificationsRead() {
   });
 }
 
+// POST /notifications
+export async function createServerNotification(body: CreateNotificationBody) {
+  return request<ServerNotification>("/notifications", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// DELETE /notifications/:id
+export async function deleteServerNotification(notificationId: string) {
+  return request<{ success: boolean }>(`/notifications/${notificationId}`, {
+    method: "DELETE",
+  });
+}
+
+// POST /notifications/trigger-scheduler
+export async function triggerNotificationScheduler() {
+  return request<{ success: boolean }>("/notifications/trigger-scheduler", {
+    method: "POST",
+  });
+}
+
 // GET /documents/:documentId/alerts
 export async function getDocumentAlerts(documentId: string): Promise<DocumentAlert[]> {
   return request<DocumentAlert[]>(
@@ -303,18 +349,27 @@ export async function deleteAlert(documentId: string, alertId: string) {
 
 // GET /users/me/settings
 export async function getNotificationSettings() {
-  return request<NotificationSettings>("/users/me/settings", {
+  const response = await request<unknown>("/users/me/settings", {
     method: "GET",
   });
+  return normalizeNotificationSettings(response);
 }
 
 // PATCH /users/me/settings
 export async function updateNotificationSettings(
   body: Partial<NotificationSettings>
 ) {
-  return request<{ success: boolean; settings: NotificationSettings }>(
+  const requestBody = {
+    ...(body.pushEnabled !== undefined ? { pushEnabled: body.pushEnabled } : {}),
+    ...(body.emailEnabled !== undefined
+      ? { emailNotiEnabled: body.emailEnabled }
+      : {}),
+  };
+  const response = await request<unknown>(
     "/users/me/settings",
-    { method: "PATCH", body: JSON.stringify(body) }
+    { method: "PATCH", body: JSON.stringify(requestBody) }
   );
+  const result = response as { settings?: unknown } | null;
+  return normalizeNotificationSettings(result?.settings ?? response);
 }
 

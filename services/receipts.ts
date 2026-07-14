@@ -54,6 +54,12 @@ type UpdateReceiptPayload = {
   isConfirmed?: boolean;
 };
 
+type CreateReceiptPayload = UpdateReceiptPayload & {
+  fileUrl?: string;
+  imageUrl?: string;
+  items?: { name: string; price: number }[];
+};
+
 type GetReceiptsResponse = {
   page?: number;
   size?: number;
@@ -180,6 +186,15 @@ export async function getReceiptDetail(receiptId: string): Promise<Receipt> {
   );
   const payload = unwrapApiResponse<ApiReceiptItem>(result);
   return toReceipt(payload);
+}
+
+export async function createReceipt(payload: CreateReceiptPayload): Promise<Receipt> {
+  const result = await receiptRequest<ApiReceiptItem | ApiResponse<ApiReceiptItem>>(
+    '/receipts',
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+  const created = unwrapApiResponse<ApiReceiptItem>(result);
+  return toReceipt(created);
 }
 
 export async function updateReceipt(

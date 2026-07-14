@@ -7,6 +7,7 @@ import {
   rescheduleAllNotifications,
   updateNotificationSettings,
 } from "@/services/notifications";
+import { ConsentType, getMyConsents, updateMyConsent } from "@/services/users";
 import { useAuthStore } from "@/stores/auth-store";
 import { useDocStore } from "@/stores/doc-store";
 import { useReceiptStore } from "@/stores/receipt-store";
@@ -109,7 +110,7 @@ export default function MyPageScreen() {
   const {
     user,
     logout,
-    forgetSavedLogin,
+    deleteAccount,
     isBiometricEnabled,
     enableBiometric,
     disableBiometric,
@@ -118,6 +119,8 @@ export default function MyPageScreen() {
 
   const [pushEnabled, setPushEnabled] = useState(true);
   const [emailEnabled, setEmailEnabled] = useState(true);
+  const [marketingAgreed, setMarketingAgreed] = useState(false);
+  const [thirdPartyAgreed, setThirdPartyAgreed] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [nicknameModalVisible, setNicknameModalVisible] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(user?.nickname ?? "");
@@ -142,12 +145,18 @@ export default function MyPageScreen() {
   }, [fetchDocuments, fetchReceipts]);
 
   useEffect(() => {
-    getNotificationSettings()
-      .then((settings) => {
-        setPushEnabled(settings.app_push_enabled);
-        setEmailEnabled(settings.email_enabled);
+    void Promise.all([getNotificationSettings(), getMyConsents()])
+      .then(([settings, consents]) => {
+        setPushEnabled(settings.pushEnabled);
+        setEmailEnabled(settings.emailEnabled);
+        setMarketingAgreed(
+          consents.find((consent) => consent.consentType === "MARKETING")?.isAgreed ?? false,
+        );
+        setThirdPartyAgreed(
+          consents.find((consent) => consent.consentType === "THIRD_PARTY")?.isAgreed ?? false,
+        );
       })
-      .catch((error) => console.log("알림 설정 조회 실패:", error));
+      .catch((error) => console.log("설정 조회 실패:", error));
   }, []);
 
   const handleOpenNicknameEdit = () => {
@@ -164,24 +173,48 @@ export default function MyPageScreen() {
   };
 
   const handlePushToggle = async (value: boolean) => {
+    const previousValue = pushEnabled;
     setPushEnabled(value);
     try {
+      const settings = await updateNotificationSettings({ pushEnabled: value });
+      setPushEnabled(settings.pushEnabled);
       if (value) {
         await rescheduleAllNotifications(documents);
       } else {
         await cancelAllNotifications();
       }
-      await updateNotificationSettings({ app_push_enabled: value });
     } catch (error) {
+      setPushEnabled(previousValue);
       console.log("알림 설정 업데이트 실패:", error);
     }
   };
 
   const handleEmailToggle = async (value: boolean) => {
+    const previousValue = emailEnabled;
     setEmailEnabled(value);
-    updateNotificationSettings({ email_enabled: value }).catch((error) =>
-      console.log("알림 설정 업데이트 실패:", error),
-    );
+    try {
+      const settings = await updateNotificationSettings({ emailEnabled: value });
+      setEmailEnabled(settings.emailEnabled);
+    } catch (error) {
+      setEmailEnabled(previousValue);
+      console.log("이메일 알림 설정 업데이트 실패:", error);
+    }
+  };
+
+  const handleConsentToggle = async (consentType: ConsentType, value: boolean) => {
+    const setValue = consentType === "MARKETING" ? setMarketingAgreed : setThirdPartyAgreed;
+    setValue(value);
+    try {
+      await updateMyConsent(consentType, value);
+      if (consentType === "MARKETING" && !value) {
+        const settings = await getNotificationSettings();
+        setPushEnabled(settings.pushEnabled);
+        if (!settings.pushEnabled) await cancelAllNotifications();
+      }
+    } catch (error) {
+      setValue(!value);
+      console.log("약관 동의 업데이트 실패:", error);
+    }
   };
 
   const handleLogout = () => {
@@ -292,7 +325,16 @@ export default function MyPageScreen() {
       "탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠습니까?",
       [
         { text: "취소", style: "cancel" },
-        { text: "탈퇴", style: "destructive", onPress: forgetSavedLogin },
+        {
+          text: "탈퇴",
+          style: "destructive",
+          onPress: () => {
+            deleteAccount().catch((error) => {
+              console.log("회원탈퇴 실패:", error);
+              Alert.alert("회원탈퇴", "탈퇴 처리에 실패했습니다.");
+            });
+          },
+        },
       ],
     );
   };
@@ -427,6 +469,27 @@ export default function MyPageScreen() {
               onPress={() => router.push("/pro-promotion" as any)}
             />
           )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>약관 및 동의</Text>
+          <MenuItem
+            icon="megaphone-outline"
+            label="마케팅 정보 수신 동의"
+            onPress={() => {}}
+            toggle
+            toggleValue={marketingAgreed}
+            onToggle={(value) => void handleConsentToggle("MARKETING", value)}
+          />
+          <View style={styles.divider} />
+          <MenuItem
+            icon="share-social-outline"
+            label="제3자 정보 제공 동의"
+            onPress={() => {}}
+            toggle
+            toggleValue={thirdPartyAgreed}
+            onToggle={(value) => void handleConsentToggle("THIRD_PARTY", value)}
+          />
         </View>
 
         <View style={styles.section}>
