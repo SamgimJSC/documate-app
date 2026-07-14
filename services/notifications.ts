@@ -171,10 +171,24 @@ export type CreateAlertBody = {
 export type UpdateAlertBody = Partial<CreateAlertBody>;
 
 export type NotificationSettings = {
-  email_enabled: boolean;
-  app_push_enabled: boolean;
-  web_push_enabled: boolean;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
 };
+
+function normalizeNotificationSettings(value: unknown): NotificationSettings {
+  const settings = (value ?? {}) as Record<string, unknown>;
+  return {
+    emailEnabled: Boolean(
+      settings.emailNotiEnabled ??
+        settings.email_noti_enabled ??
+        settings.emailEnabled ??
+        settings.email_enabled,
+    ),
+    pushEnabled: Boolean(
+      settings.pushEnabled ?? settings.appPushEnabled ?? settings.app_push_enabled,
+    ),
+  };
+}
 
 // ===============================
 // 서버 알림 API 연결
@@ -335,18 +349,27 @@ export async function deleteAlert(documentId: string, alertId: string) {
 
 // GET /users/me/settings
 export async function getNotificationSettings() {
-  return request<NotificationSettings>("/users/me/settings", {
+  const response = await request<unknown>("/users/me/settings", {
     method: "GET",
   });
+  return normalizeNotificationSettings(response);
 }
 
 // PATCH /users/me/settings
 export async function updateNotificationSettings(
   body: Partial<NotificationSettings>
 ) {
-  return request<{ success: boolean; settings: NotificationSettings }>(
+  const requestBody = {
+    ...(body.pushEnabled !== undefined ? { pushEnabled: body.pushEnabled } : {}),
+    ...(body.emailEnabled !== undefined
+      ? { emailNotiEnabled: body.emailEnabled }
+      : {}),
+  };
+  const response = await request<unknown>(
     "/users/me/settings",
-    { method: "PATCH", body: JSON.stringify(body) }
+    { method: "PATCH", body: JSON.stringify(requestBody) }
   );
+  const result = response as { settings?: unknown } | null;
+  return normalizeNotificationSettings(result?.settings ?? response);
 }
 

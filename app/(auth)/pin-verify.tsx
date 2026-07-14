@@ -1,13 +1,18 @@
 import { PinPad } from "@/components/common/pin-pad";
 import { Colors, Radius, Spacing } from "@/constants/theme";
 import {
+  BIOMETRIC_ENABLED_KEY,
+  BIOMETRIC_RESYNC_REQUIRED_KEY,
   getCurrentUser,
   loginWithBiometricSignature,
   loginWithPin,
+  markBiometricResyncRequired,
+  refreshSavedBiometricLogin,
 } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { Ionicons } from "@expo/vector-icons";
 import { isAxiosError } from "axios";
+import * as SecureStore from "expo-secure-store";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -34,7 +39,6 @@ export default function PinVerifyScreen() {
   const router = useRouter();
   const {
     isBiometricEnabled,
-    forgetSavedLogin,
   } = useAuthStore();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -54,6 +58,21 @@ export default function PinVerifyScreen() {
       useAuthStore.setState({ pin: value, isPinSet: true });
 
       const user = await getCurrentUser();
+      const savedBiometricEnabled =
+        (await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY)) === "true";
+      const biometricResyncRequired =
+        (await SecureStore.getItemAsync(BIOMETRIC_RESYNC_REQUIRED_KEY)) === "true";
+      if (savedBiometricEnabled || biometricResyncRequired) {
+        try {
+          await refreshSavedBiometricLogin(user.email);
+          useAuthStore.setState({ isBiometricEnabled: true });
+        } catch (biometricError) {
+          console.warn("Biometric login refresh failed after PIN login.", biometricError);
+          const stillBiometricEnabled =
+            (await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY)) === "true";
+          useAuthStore.setState({ isBiometricEnabled: stillBiometricEnabled });
+        }
+      }
       completeLogin(user, value);
       router.replace("/(tabs)");
     } catch (err: unknown) {
@@ -95,15 +114,19 @@ export default function PinVerifyScreen() {
       const user = await loginWithBiometricSignature();
       completeLogin(user);
       router.replace("/(tabs)");
-    } catch {
-      setError("생체인식 로그인에 실패했습니다. PIN 또는 이메일로 로그인해주세요.");
+    } catch (err: unknown) {
+      if (isAxiosError(err) && err.response?.status === 401) {
+        await markBiometricResyncRequired();
+        setError("이 기기의 생체인증 정보가 서버와 맞지 않습니다. PIN 또는 이메일로 로그인하면 다시 등록됩니다.");
+      } else {
+        setError("생체인식 로그인에 실패했습니다. PIN 또는 이메일로 로그인해주세요.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleOtherAccount = () => {
-    forgetSavedLogin();
     router.replace("/(auth)/login");
   };
 
@@ -137,7 +160,7 @@ export default function PinVerifyScreen() {
         ) : null}
 
         <TouchableOpacity onPress={handleOtherAccount} style={styles.logoutBtn}>
-          <Text style={styles.logoutText}>다른 계정으로 로그인</Text>
+          <Text style={styles.logoutText}>이메일로 로그인</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

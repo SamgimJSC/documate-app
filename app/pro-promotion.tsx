@@ -3,18 +3,20 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   PaymentHistoryItem,
   PRO_MONTHLY_AMOUNT,
-  SubscriptionInfo,
-  approveKakaoSubscription,
-  cancelSubscription,
+  getKakaoRedirectUrl,
   getPaymentHistory,
-  getSubscription,
   readyKakaoSubscription,
 } from '@/services/payments';
+import {
+  SubscriptionInfo,
+  cancelSubscription,
+  getSubscription,
+  undoSubscriptionCancel,
+} from '@/services/subscriptions';
 import { useAuthStore } from '@/stores/auth-store';
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -30,8 +32,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 WebBrowser.maybeCompleteAuthSession();
-
-const KAKAO_TID_KEY = 'kakaoSubscriptionTid';
 
 interface Feature {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -64,10 +64,8 @@ function formatDate(value?: string) {
 
 export default function ProPromotionScreen() {
   const router = useRouter();
-  const { pg_token: pgTokenParam } = useLocalSearchParams<{ pg_token?: string }>();
   const { user, upgradeToPro } = useAuthStore();
   const [loading, setLoading] = useState(false);
-  const [approving, setApproving] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [payments, setPayments] = useState<PaymentHistoryItem[]>([]);
@@ -93,42 +91,6 @@ export default function ProPromotionScreen() {
     void loadBilling();
   }, [loadBilling]);
 
-  const approvePayment = useCallback(
-    async (pgToken: string) => {
-      const tid = await SecureStore.getItemAsync(KAKAO_TID_KEY);
-      if (!tid) {
-        Alert.alert('결제 승인 실패', '결제 정보를 찾을 수 없습니다. 다시 시도해주세요.');
-        return;
-      }
-
-      setApproving(true);
-      try {
-        const result = await approveKakaoSubscription(tid, pgToken);
-        await SecureStore.deleteItemAsync(KAKAO_TID_KEY);
-        if (result.success) {
-          upgradeToPro();
-          await loadBilling();
-          Alert.alert(
-            '구독 등록 완료',
-            `DocuMate Pro가 활성화되었습니다.\n월 ${formatWon(PRO_MONTHLY_AMOUNT)} 정기결제가 등록되었습니다.`,
-            [{ text: '확인', onPress: () => router.replace('/(tabs)/mypage' as any) }],
-          );
-        }
-      } catch (error) {
-        console.log('카카오페이 승인 실패:', error);
-        Alert.alert('결제 승인 실패', '카카오페이 결제 승인에 실패했습니다.');
-      } finally {
-        setApproving(false);
-      }
-    },
-    [loadBilling, router, upgradeToPro],
-  );
-
-  useEffect(() => {
-    if (!pgTokenParam) return;
-    void approvePayment(String(pgTokenParam));
-  }, [approvePayment, pgTokenParam]);
-
   const handleUpgrade = async () => {
     Alert.alert(
       'Pro 업그레이드',
@@ -141,24 +103,30 @@ export default function ProPromotionScreen() {
             setLoading(true);
             try {
               const ready = await readyKakaoSubscription();
-              const redirectUrl =
-                Platform.OS === 'web'
-                  ? ready.next_redirect_pc_url
-                  : ready.next_redirect_mobile_url ?? ready.next_redirect_pc_url;
+              const redirectUrl = getKakaoRedirectUrl(
+                ready,
+                Platform.OS === 'web' ? 'web' : 'native',
+              );
 
-              if (!ready.tid || !redirectUrl) {
+              if (!redirectUrl) {
                 throw new Error('INVALID_KAKAO_READY_RESPONSE');
               }
 
-              await SecureStore.setItemAsync(KAKAO_TID_KEY, ready.tid);
               const returnUrl = Linking.createURL('/pro-promotion');
               const result = await WebBrowser.openAuthSessionAsync(redirectUrl, returnUrl);
 
-              if (result.type === 'success' && result.url) {
-                const parsed = Linking.parse(result.url);
-                const pgToken = parsed.queryParams?.pg_token;
-                if (pgToken) {
-                  await approvePayment(String(pgToken));
+              if (result.type === 'success') {
+                const subscriptionInfo = await getSubscription();
+                setSubscription(subscriptionInfo);
+                await loadBilling();
+                if (subscriptionInfo.status === 'ACTIVE') {
+                  upgradeToPro();
+                  Alert.alert(
+                    '구독 등록 완료',
+                    `DocuMate Pro가 활성화되었습니다.\n월 ${formatWon(PRO_MONTHLY_AMOUNT)} 정기결제가 등록되었습니다.`,
+                  );
+                } else {
+                  Alert.alert('결제 확인 필요', '결제 상태를 확인하지 못했습니다. 잠시 후 새로고침해주세요.');
                 }
               }
             } catch (error: any) {
@@ -177,6 +145,20 @@ export default function ProPromotionScreen() {
         },
       ],
     );
+  };
+
+  const handleUndoCancel = async () => {
+    setLoading(true);
+    try {
+      await undoSubscriptionCancel();
+      await loadBilling();
+      Alert.alert('해지 예약 취소 완료', 'Pro 구독이 계속 자동 갱신됩니다.');
+    } catch (error) {
+      console.log('구독 해지 예약 취소 실패:', error);
+      Alert.alert('처리 실패', '구독 해지 예약 취소에 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -335,7 +317,9 @@ export default function ProPromotionScreen() {
           {isPro ? (
             <>
               <Button label={isCanceled ? '해지 예약됨' : '현재 Pro 플랜 이용 중'} onPress={() => {}} disabled />
-              {!isCanceled && (
+              {isCanceled ? (
+                <Button label="해지 예약 취소" onPress={handleUndoCancel} variant="ghost" loading={loading} />
+              ) : (
                 <Button label="플랜 해지 예약" onPress={handleCancel} variant="ghost" loading={loading} />
               )}
             </>
@@ -344,7 +328,7 @@ export default function ProPromotionScreen() {
               <Button
                 label="카카오페이로 업그레이드"
                 onPress={handleUpgrade}
-                loading={loading || approving}
+                loading={loading}
               />
               <Text style={styles.disclaimer}>
                 구독은 매달 자동 갱신됩니다.{'\n'}

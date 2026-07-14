@@ -9,30 +9,16 @@ function unwrapData<T>(payload: T | { data?: T }): T {
 
 export const PRO_MONTHLY_AMOUNT = 3900;
 
-export type KakaoSubscriptionReadyResponse = {
-  tid: string;
+export type KakaoPaymentReadyResponse = {
+  paymentId?: string;
+  payment_id?: string;
+  tid?: string;
+  nextRedirectPcUrl?: string;
+  nextRedirectMobileUrl?: string;
+  nextRedirectAppUrl?: string;
   next_redirect_pc_url?: string;
   next_redirect_mobile_url?: string;
-};
-
-export type KakaoSubscriptionApproveResponse = {
-  success: boolean;
-  subscription_id: string;
-  sid: string;
-  plan: 'PRO';
-  current_period_end: string;
-  amount: number;
-};
-
-export type SubscriptionStatus = 'NONE' | 'ACTIVE' | 'CANCELED' | 'PAST_DUE' | 'EXPIRED';
-
-export type SubscriptionInfo = {
-  subscription_id?: string;
-  billing_cycle?: 'MONTHLY';
-  status: SubscriptionStatus;
-  is_canceled?: boolean;
-  current_period_end?: string;
-  payment_method?: 'KAKAOPAY';
+  next_redirect_app_url?: string;
 };
 
 export type PaymentHistoryItem = {
@@ -42,40 +28,76 @@ export type PaymentHistoryItem = {
   approved_at: string;
 };
 
-export async function readyKakaoSubscription(): Promise<KakaoSubscriptionReadyResponse> {
-  const response = await axiosInstance.post('/payments/kakao/subscription/ready', {
-    plan: 'PRO',
-  });
-  return unwrapData<KakaoSubscriptionReadyResponse>(response);
+export type GetPaymentHistoryParams = {
+  page?: number;
+  limit?: number;
+};
+
+type PaymentHistoryPayload =
+  | unknown[]
+  | {
+      items?: unknown[];
+      payments?: unknown[];
+    };
+
+function normalizePayment(value: unknown): PaymentHistoryItem {
+  const item = (value ?? {}) as Record<string, unknown>;
+  return {
+    payment_id: String(item.paymentId ?? item.payment_id ?? item.id ?? ''),
+    amount: Number(item.amount ?? 0),
+    status: String(item.status ?? ''),
+    approved_at: String(
+      item.approvedAt ?? item.approved_at ?? item.createdAt ?? item.created_at ?? '',
+    ),
+  };
 }
 
-export async function approveKakaoSubscription(
-  tid: string,
-  pgToken: string,
-): Promise<KakaoSubscriptionApproveResponse> {
-  const response = await axiosInstance.post('/payments/kakao/subscription/approve', {
-    tid,
-    pg_token: pgToken,
-  });
-  return unwrapData<KakaoSubscriptionApproveResponse>(response);
+/** 신규 구독 결제 준비. 결제 승인은 카카오페이의 서버 콜백에서 처리된다. */
+export async function readyKakaoSubscription(): Promise<KakaoPaymentReadyResponse> {
+  const response = await axiosInstance.post('/payments/kakao/ready');
+  return unwrapData<KakaoPaymentReadyResponse>(response);
 }
 
-export async function cancelSubscription(): Promise<{
-  success: boolean;
-  is_canceled: boolean;
-  current_period_end: string;
-}> {
-  const response = await axiosInstance.post('/payments/subscription/cancel');
+/** 기존 구독의 카카오페이 결제수단 변경 준비. */
+export async function readyKakaoMethodChange(): Promise<KakaoPaymentReadyResponse> {
+  const response = await axiosInstance.post('/payments/kakao/method-change/ready');
+  return unwrapData<KakaoPaymentReadyResponse>(response);
+}
+
+export function getKakaoRedirectUrl(
+  ready: KakaoPaymentReadyResponse,
+  platform: 'web' | 'native',
+): string | undefined {
+  if (platform === 'web') {
+    return ready.nextRedirectPcUrl ?? ready.next_redirect_pc_url;
+  }
+  return (
+    ready.nextRedirectAppUrl ??
+    ready.next_redirect_app_url ??
+    ready.nextRedirectMobileUrl ??
+    ready.next_redirect_mobile_url ??
+    ready.nextRedirectPcUrl ??
+    ready.next_redirect_pc_url
+  );
+}
+
+export async function getPaymentHistory(
+  params: GetPaymentHistoryParams = {},
+): Promise<PaymentHistoryItem[]> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.append('page', String(params.page));
+  if (params.limit !== undefined) query.append('limit', String(params.limit));
+
+  const response = await axiosInstance.get(
+    `/payments${query.toString() ? `?${query.toString()}` : ''}`,
+  );
+  const payload = unwrapData<PaymentHistoryPayload>(response);
+  const items = Array.isArray(payload) ? payload : payload.items ?? payload.payments ?? [];
+  return items.map(normalizePayment);
+}
+
+/** 개발/운영 배치 관리용 수동 정기결제 실행 API. */
+export async function runSubscriptionBilling(): Promise<unknown> {
+  const response = await axiosInstance.post('/payments/kakao/subscriptions/billing/run');
   return unwrapData(response);
-}
-
-export async function getSubscription(): Promise<SubscriptionInfo> {
-  const response = await axiosInstance.get('/payments/subscription');
-  return unwrapData<SubscriptionInfo>(response);
-}
-
-export async function getPaymentHistory(): Promise<PaymentHistoryItem[]> {
-  const response = await axiosInstance.get('/payments/history');
-  const payload = unwrapData<{ payments?: PaymentHistoryItem[] } | PaymentHistoryItem[]>(response);
-  return Array.isArray(payload) ? payload : payload.payments ?? [];
 }

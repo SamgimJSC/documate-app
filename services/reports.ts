@@ -35,9 +35,13 @@ export type TopStoreItem = {
   storeName?: string;
   store_name?: string;
   name?: string;
+  totalSpend?: number;
+  total_spend?: number;
   totalAmount?: number;
   total_amount?: number;
   amount?: number;
+  visitCount?: number;
+  visit_count?: number;
   receiptCount?: number;
   receipt_count?: number;
   count?: number;

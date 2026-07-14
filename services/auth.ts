@@ -1,6 +1,10 @@
 import axiosInstance from "@/utils/axios.util";
 import * as SecureStore from "expo-secure-store";
-import { signBiometricChallenge } from "@/services/rnb";
+import {
+  createBiometricKeyPair,
+  deleteBiometricKeys,
+  signBiometricChallenge,
+} from "@/services/rnb";
 
 export type BiometricType = "FACE" | "FINGER";
 
@@ -20,9 +24,14 @@ function unwrapData<T>(payload: T | { data?: T }): T {
   return payload as T;
 }
 
+function normalizeUserPlan(value: unknown): AuthUser["plan"] {
+  return String(value ?? "").trim().toUpperCase() === "PRO" ? "pro" : "free";
+}
+
 export const PIN_LOGIN_EMAIL_KEY = "pinLoginEmail";
 export const BIOMETRIC_ENABLED_KEY = "biometricEnabled";
 export const BIOMETRIC_LOGIN_EMAIL_KEY = "biometricLoginEmail";
+export const BIOMETRIC_RESYNC_REQUIRED_KEY = "biometricResyncRequired";
 
 export async function rememberPinLoginEmail(email: string): Promise<void> {
   const normalizedEmail = email.trim();
@@ -66,7 +75,7 @@ export async function getCurrentUser(): Promise<AuthUser> {
     id: String(data.userId ?? data.id ?? ""),
     email: String(data.email ?? ""),
     nickname: String(data.nickname ?? ""),
-    plan: data.plan === "PRO" || data.plan === "pro" ? "pro" : "free",
+    plan: normalizeUserPlan(data.plan ?? data.userPlan ?? data.user_plan),
     storageUsed:
       (data.storageUsed ?? data.storage_used) !== undefined
         ? Number(data.storageUsed ?? data.storage_used)
@@ -121,6 +130,36 @@ export async function setBiometricLoginEnabled(
 
 export async function rememberBiometricLoginEmail(email: string): Promise<void> {
   await SecureStore.setItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY, email.trim());
+}
+
+export async function markBiometricResyncRequired(): Promise<void> {
+  await SecureStore.setItemAsync(BIOMETRIC_RESYNC_REQUIRED_KEY, "true");
+}
+
+export async function refreshSavedBiometricLogin(email: string): Promise<void> {
+  const normalizedEmail = email.trim();
+  if (!normalizedEmail) throw new Error("BIOMETRIC_EMAIL_NOT_FOUND");
+
+  const { biometricType, publicKey } = await createBiometricKeyPair({
+    requirePrompt: false,
+  });
+  try {
+    await setBiometricLoginEnabled(true, biometricType, publicKey);
+  } catch (error) {
+    await Promise.all([
+      SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_RESYNC_REQUIRED_KEY),
+      deleteBiometricKeys(),
+    ]);
+    throw error;
+  }
+
+  await Promise.all([
+    SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, "true"),
+    SecureStore.deleteItemAsync(BIOMETRIC_RESYNC_REQUIRED_KEY),
+    rememberBiometricLoginEmail(normalizedEmail),
+  ]);
 }
 
 export async function biometricChallenge(email: string): Promise<{

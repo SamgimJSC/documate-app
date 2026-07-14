@@ -1,6 +1,7 @@
 import {
   BIOMETRIC_ENABLED_KEY,
   BIOMETRIC_LOGIN_EMAIL_KEY,
+  BIOMETRIC_RESYNC_REQUIRED_KEY,
   PIN_LOGIN_EMAIL_KEY,
   deleteUser,
   getCurrentUser,
@@ -144,6 +145,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       SecureStore.deleteItemAsync("refreshToken"),
       SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
       SecureStore.deleteItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_RESYNC_REQUIRED_KEY),
       SecureStore.deleteItemAsync(PIN_LOGIN_EMAIL_KEY),
     ]);
     void deleteBiometricKeys();
@@ -206,6 +208,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
     await Promise.all([
       SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, "true"),
+      SecureStore.deleteItemAsync(BIOMETRIC_RESYNC_REQUIRED_KEY),
       rememberBiometricLoginEmail(email),
     ]);
     set({ isBiometricEnabled: true });
@@ -216,6 +219,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     await Promise.all([
       SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
       SecureStore.deleteItemAsync(BIOMETRIC_LOGIN_EMAIL_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_RESYNC_REQUIRED_KEY),
       deleteBiometricKeys(),
     ]);
     set({ isBiometricEnabled: false });

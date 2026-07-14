@@ -21,6 +21,25 @@ export type CreateUserBody = {
   pinNumber?: string;
 };
 
+export type ConsentType = 'TERMS' | 'PRIVACY' | 'MARKETING' | 'THIRD_PARTY';
+
+export type UserConsent = {
+  consentType: ConsentType;
+  isAgreed: boolean;
+  agreedAt?: string | null;
+  updatedAt?: string | null;
+};
+
+function normalizeConsent(value: unknown): UserConsent {
+  const item = (value ?? {}) as Record<string, unknown>;
+  return {
+    consentType: String(item.consentType ?? item.consent_type) as ConsentType,
+    isAgreed: Boolean(item.isAgreed ?? item.is_agreed),
+    agreedAt: (item.agreedAt ?? item.agreed_at ?? null) as string | null,
+    updatedAt: (item.updatedAt ?? item.updated_at ?? null) as string | null,
+  };
+}
+
 export async function getUsers(params: GetUsersParams = {}): Promise<AuthUser[]> {
   const query = new URLSearchParams();
   if (params.keyword) query.append('keyword', params.keyword);
@@ -40,4 +59,21 @@ export async function getUser(userId: string): Promise<AuthUser> {
 export async function createUser(body: CreateUserBody): Promise<AuthUser> {
   const response = await axiosInstance.post('/users', body);
   return unwrapData<AuthUser>(response);
+}
+
+export async function getMyConsents(): Promise<UserConsent[]> {
+  const response = await axiosInstance.get('/users/me/consents');
+  const payload = unwrapData<UserConsent[] | { consents?: UserConsent[] }>(response);
+  const consents = Array.isArray(payload) ? payload : payload.consents ?? [];
+  return consents.map(normalizeConsent);
+}
+
+export async function updateMyConsent(
+  consentType: ConsentType,
+  isAgreed: boolean,
+): Promise<UserConsent> {
+  const response = await axiosInstance.patch(`/users/me/consents/${consentType}`, {
+    isAgreed,
+  });
+  return normalizeConsent(unwrapData(response));
 }
