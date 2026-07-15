@@ -18,10 +18,9 @@ export default {
       googleServicesFile:
         process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
       adaptiveIcon: {
+        foregroundImage: "./assets/images/icon.png",
         backgroundColor: "#E6F4FE",
-        foregroundImage: "./assets/images/android-icon-foreground.png",
-        backgroundImage: "./assets/images/android-icon-background.png",
-        monochromeImage: "./assets/images/android-icon-monochrome.png",
+        monochromeImage: "./assets/images/icon.png",
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
@@ -29,7 +28,7 @@ export default {
 
     web: {
       output: "static",
-      favicon: "./assets/images/favicon.png",
+      favicon: "./assets/images/icon.png",
     },
 
     plugins: [
@@ -37,7 +36,7 @@ export default {
       [
         "expo-splash-screen",
         {
-          image: "./assets/images/splash-icon.png",
+          image: "./assets/images/icon.png",
           imageWidth: 200,
           resizeMode: "contain",
           backgroundColor: "#ffffff",
@@ -56,7 +55,7 @@ export default {
       [
         "expo-notifications",
         {
-          icon: "./assets/images/android-icon-monochrome.png",
+          icon: "./assets/images/icon.png",
           color: "#1565C0",
         //   defaultChannel: "default",
         },
