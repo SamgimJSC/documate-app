@@ -6,11 +6,13 @@ import { useDocStore } from "@/stores/doc-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import ReanimatedSwipeable, { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import {
   ActivityIndicator,
   Animated,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -81,6 +83,7 @@ export default function CabinetScreen() {
     fetchDocuments,
     getFilteredDocuments,
     isLoading,
+    removeDocument,
     searchQuery,
     setSearchQuery,
     setSelectedCategory,
@@ -99,11 +102,19 @@ export default function CabinetScreen() {
   const [pinModalLoading, setPinModalLoading] = useState(false);
   const [pendingDocId, setPendingDocId] = useState<string | null>(null);
   const [pinModalPurpose, setPinModalPurpose] = useState<'view' | 'disable'>('view');
+  const [refreshing, setRefreshing] = useState(false);
+  const swipeableRefs = useRef<Record<string, SwipeableMethods | null>>({});
 
   // 최초 마운트: 로딩 스켈레톤 표시하며 fetch
   useEffect(() => {
     fetchDocuments();
     fetchCategories();
+  }, [fetchDocuments, fetchCategories]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([fetchDocuments(true), fetchCategories()]);
+    setRefreshing(false);
   }, [fetchDocuments, fetchCategories]);
 
   // 화면 포커스될 때마다 (상세페이지에서 돌아올 때 등) silent re-fetch
@@ -323,6 +334,7 @@ export default function CabinetScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {isLoading ? (
           <>
@@ -347,82 +359,123 @@ export default function CabinetScreen() {
                 ? `"${searchQuery}"에 해당하는 문서가 없어요`
                 : catFilter !== "전체"
                 ? `${catFilter} 카테고리에 문서가 없어요`
-                : "카메라 버튼을 눌러 첫 번째 문서를 추가해보세요"}
+                : "첫 번째 문서를 추가해보세요"}
             </Text>
+            {!searchQuery && catFilter === "전체" && (
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => router.push('/camera' as any)}
+              >
+                <Ionicons name="add" size={18} color={Colors.white} />
+                <Text style={styles.emptyBtnText}>문서 추가하기</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           docs.map((doc) => {
             const days = getDaysUntil(doc.expiryDate);
 
             return (
-              <TouchableOpacity
+              <ReanimatedSwipeable
                 key={doc.id}
-                style={styles.docCard}
-                onPress={() => handleDocPress(doc.id, !!doc.isSecured)}
-              >
-                <View style={styles.docLeft}>
-                  <View style={styles.docIcon}>
-                    <Ionicons name="document-text-outline" size={22} color={Colors.gray500} />
-                  </View>
-                  <View style={styles.docInfo}>
-                    <Text style={styles.docTitle} numberOfLines={1}>
-                      {doc.title}
-                    </Text>
-                    <Text style={styles.docCategory}>{doc.category}</Text>
-                    {doc.expiryDate && (
-                      <Text
-                        style={[
-                          styles.docExpiry,
-                          days !== null && days <= 30 && styles.docExpiryUrgent,
-                        ]}
-                      >
-                        만료: {doc.expiryDate}
-                        {days !== null && days >= 0
-                          ? ` (${days}일 후)`
-                          : " (만료됨)"}
-                      </Text>
-                    )}
-                    {doc.tags.length > 0 && (
-                      <View style={styles.tagRow}>
-                        {doc.tags.slice(0, 3).map((tag) => (
-                          <View key={tag} style={styles.tag}>
-                            <Text style={styles.tagText}>#{tag}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                </View>
-                <View style={styles.docRight}>
-                  {getStatusBadge(doc.status)}
-                  <TouchableOpacity
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      handleLockToggle(doc.id, !!doc.isSecured);
-                    }}
-                    style={styles.favBtn}
-                  >
-                    <Ionicons
-                      name={doc.isSecured ? "lock-closed" : "lock-open-outline"}
-                      size={18}
-                      color={doc.isSecured ? Colors.primary : Colors.gray300}
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      toggleFavorite(doc.id);
-                    }}
-                    style={styles.favBtn}
-                  >
+                ref={(ref) => { swipeableRefs.current[doc.id] = ref; }}
+                renderLeftActions={() => (
+                  <View style={[styles.swipeAction, styles.swipeActionFavorite]}>
                     <Ionicons
                       name={doc.isFavorite ? "star" : "star-outline"}
-                      size={20}
-                      color={doc.isFavorite ? Colors.warning : Colors.gray300}
+                      size={24}
+                      color={Colors.white}
                     />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
+                    <Text style={styles.swipeActionText}>
+                      {doc.isFavorite ? "해제" : "즐겨찾기"}
+                    </Text>
+                  </View>
+                )}
+                renderRightActions={() => (
+                  <View style={[styles.swipeAction, styles.swipeActionDelete]}>
+                    <Ionicons name="trash-outline" size={24} color={Colors.white} />
+                    <Text style={styles.swipeActionText}>삭제</Text>
+                  </View>
+                )}
+                onSwipeableOpen={(direction) => {
+                  if (direction === 'right') {
+                    toggleFavorite(doc.id);
+                    setTimeout(() => swipeableRefs.current[doc.id]?.close(), 300);
+                  } else {
+                    removeDocument(doc.id);
+                  }
+                }}
+                overshootLeft={false}
+                overshootRight={false}
+              >
+                <TouchableOpacity
+                  style={styles.docCard}
+                  onPress={() => handleDocPress(doc.id, !!doc.isSecured)}
+                >
+                  <View style={styles.docLeft}>
+                    <View style={styles.docIcon}>
+                      <Ionicons name="document-text-outline" size={22} color={Colors.gray500} />
+                    </View>
+                    <View style={styles.docInfo}>
+                      <Text style={styles.docTitle} numberOfLines={1}>
+                        {doc.title}
+                      </Text>
+                      <Text style={styles.docCategory}>{doc.category}</Text>
+                      {doc.expiryDate && (
+                        <Text
+                          style={[
+                            styles.docExpiry,
+                            days !== null && days <= 30 && styles.docExpiryUrgent,
+                          ]}
+                        >
+                          만료: {doc.expiryDate}
+                          {days !== null && days >= 0
+                            ? ` (${days}일 후)`
+                            : " (만료됨)"}
+                        </Text>
+                      )}
+                      {doc.tags.length > 0 && (
+                        <View style={styles.tagRow}>
+                          {doc.tags.slice(0, 3).map((tag) => (
+                            <View key={tag} style={styles.tag}>
+                              <Text style={styles.tagText}>#{tag}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.docRight}>
+                    {getStatusBadge(doc.status)}
+                    <TouchableOpacity
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleLockToggle(doc.id, !!doc.isSecured);
+                      }}
+                      style={styles.favBtn}
+                    >
+                      <Ionicons
+                        name={doc.isSecured ? "lock-closed" : "lock-open-outline"}
+                        size={18}
+                        color={doc.isSecured ? Colors.primary : Colors.gray300}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        toggleFavorite(doc.id);
+                      }}
+                      style={styles.favBtn}
+                    >
+                      <Ionicons
+                        name={doc.isFavorite ? "star" : "star-outline"}
+                        size={20}
+                        color={doc.isFavorite ? Colors.warning : Colors.gray300}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              </ReanimatedSwipeable>
             );
           })
         )}
@@ -738,6 +791,26 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 16, fontWeight: "700", color: Colors.gray700 },
   emptyDesc: { fontSize: 14, color: Colors.gray400, textAlign: "center", lineHeight: 21 },
+  emptyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radius.full,
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  emptyBtnText: { fontSize: 14, fontWeight: "600", color: Colors.white },
+  swipeAction: {
+    justifyContent: "center",
+    alignItems: "center",
+    width: 80,
+    gap: Spacing.xs,
+  },
+  swipeActionFavorite: { backgroundColor: Colors.warning },
+  swipeActionDelete: { backgroundColor: Colors.error },
+  swipeActionText: { fontSize: 11, fontWeight: "600", color: Colors.white },
 
   pinOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.4)" },
   pinCard: {

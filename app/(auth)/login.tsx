@@ -17,13 +17,14 @@ import { isAxiosError } from "axios";
 import * as SecureStore from "expo-secure-store";
 import { useRouter } from "expo-router";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -36,6 +37,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const passwordRef = useRef<TextInput>(null);
 
   useEffect(() => {
     SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY).then((enabled) => {
@@ -184,14 +186,20 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoComplete="email"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                blurOnSubmit={false}
               />
               <Input
+                ref={passwordRef}
                 label="비밀번호"
                 placeholder="비밀번호 입력"
                 value={password}
                 onChangeText={setPassword}
                 isPassword
                 error={error || undefined}
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
               />
             </View>
 
