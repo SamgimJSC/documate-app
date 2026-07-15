@@ -8,9 +8,11 @@ import { showToast } from '@/stores/toast-store';
 import { calculateStorageUsedGb, formatStorageUsed } from '@/utils/storage-usage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,11 +23,36 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 type HomeTab = 'recent' | 'favorite';
 
+function SkeletonDocItem() {
+  const shimmer = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(shimmer, { toValue: 0, duration: 750, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [shimmer]);
+  const opacity = shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0.9] });
+  return (
+    <Animated.View style={[styles.docItem, { opacity }]}>
+      <View style={styles.skeletonIcon} />
+      <View style={styles.docInfo}>
+        <View style={styles.skeletonLine} />
+        <View style={[styles.skeletonLine, { width: '45%', height: 10, marginTop: 4 }]} />
+      </View>
+    </Animated.View>
+  );
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const documents = useDocStore((s) => s.documents);
   const fetchDocuments = useDocStore((s) => s.fetchDocuments);
+  const isDocsLoading = useDocStore((s) => s.isLoading);
   const getTotalForMonth = useReceiptStore((s) => s.getTotalForMonth);
   const receipts = useReceiptStore((s) => s.receipts);
   const fetchReceipts = useReceiptStore((s) => s.fetchReceipts);
@@ -63,11 +90,33 @@ export default function HomeScreen() {
     return diff;
   };
 
+  const [processingCount, setProcessingCount] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    getTempDocumentList()
+      .then((list) => setProcessingCount(list.filter((d) => d.aiStatus === 'PENDING' || d.aiStatus === 'PROCESSING').length))
+      .catch(() => {});
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchDocuments(),
+      fetchReceipts(),
+      getTempDocumentList()
+        .then((list) => setProcessingCount(list.filter((d) => d.aiStatus === 'PENDING' || d.aiStatus === 'PROCESSING').length))
+        .catch(() => {}),
+    ]);
+    setRefreshing(false);
+  }, [fetchDocuments, fetchReceipts]);
+
   const handleProcessingCenter = async () => {
     try {
       const list = await getTempDocumentList();
-      const hasActive = list.some((d) => d.aiStatus === 'PENDING' || d.aiStatus === 'PROCESSING');
-      if (hasActive) {
+      const active = list.filter((d) => d.aiStatus === 'PENDING' || d.aiStatus === 'PROCESSING');
+      setProcessingCount(active.length);
+      if (active.length > 0) {
         router.push('/processing-center' as any);
       } else {
         showToast('처리 중인 문서가 없습니다.', 'info');
@@ -88,6 +137,11 @@ export default function HomeScreen() {
         <View style={styles.headerActions}>
           <TouchableOpacity onPress={handleProcessingCenter} style={styles.notifBtn}>
             <Ionicons name="document-text-outline" size={24} color={Colors.white} />
+            {processingCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifCount}>{processingCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/notification' as any)} style={styles.notifBtn}>
             <Ionicons name="notifications-outline" size={24} color={Colors.white} />
@@ -100,7 +154,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {/* 스토리지 카드 */}
         <View style={styles.storageCard}>
           <View style={styles.storageTop}>
@@ -179,9 +233,24 @@ export default function HomeScreen() {
             ))}
           </View>
 
-          {displayedDocs.length === 0 ? (
+          {isDocsLoading ? (
+            <View style={styles.docList}>
+              {[1, 2, 3].map((i) => <SkeletonDocItem key={i} />)}
+            </View>
+          ) : displayedDocs.length === 0 ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>문서가 없습니다</Text>
+              <Text style={styles.emptyText}>
+                {activeTab === 'favorite' ? '즐겨찾기한 문서가 없습니다' : '문서가 없습니다'}
+              </Text>
+              {activeTab === 'recent' && (
+                <TouchableOpacity
+                  style={styles.emptyBtn}
+                  onPress={() => router.push('/camera' as any)}
+                >
+                  <Ionicons name="add" size={18} color={Colors.white} />
+                  <Text style={styles.emptyBtnText}>문서 추가하기</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <View style={styles.docList}>
@@ -314,6 +383,18 @@ const styles = S.create({
   viewAllBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, paddingTop: Spacing.xs },
   viewAllText: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
 
-  empty: { padding: Spacing.lg, alignItems: 'center' },
+  empty: { padding: Spacing.lg, alignItems: 'center', gap: Spacing.sm },
   emptyText: { fontSize: 14, color: Colors.gray400 },
+  emptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radius.full,
+    gap: Spacing.xs,
+  },
+  emptyBtnText: { fontSize: 14, fontWeight: '600', color: Colors.white },
+  skeletonIcon: { width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: Colors.gray200 },
+  skeletonLine: { height: 14, width: '65%', backgroundColor: Colors.gray200, borderRadius: Radius.sm },
 });

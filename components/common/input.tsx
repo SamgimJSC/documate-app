@@ -1,6 +1,6 @@
 import { Colors, Radius, Spacing } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { forwardRef, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -18,13 +18,10 @@ interface InputProps extends TextInputProps {
   isPassword?: boolean;
 }
 
-export function Input({
-  label,
-  error,
-  containerStyle,
-  isPassword = false,
-  ...props
-}: InputProps) {
+export const Input = forwardRef<TextInput, InputProps>(function Input(
+  { label, error, containerStyle, isPassword = false, ...props },
+  ref,
+) {
   const [showPw, setShowPw] = useState(false);
 
   return (
@@ -37,6 +34,7 @@ export function Input({
         ]}
       >
         <TextInput
+          ref={ref}
           style={styles.input}
           placeholderTextColor={Colors.gray400}
           secureTextEntry={isPassword && !showPw}
@@ -60,11 +58,11 @@ export function Input({
         )}
       </View>
       <Text style={[styles.error, !error && styles.errorHidden]}>
-        {error || "\u00A0"}
+        {error || " "}
       </Text>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: { gap: Spacing.xs },

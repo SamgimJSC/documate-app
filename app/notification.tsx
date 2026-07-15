@@ -9,12 +9,13 @@ import {
 } from '@/services/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Platform,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -40,6 +41,7 @@ export default function NotificationScreen() {
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
   const [status, setStatus] = useState<NotificationStatus>('all');
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
@@ -57,6 +59,12 @@ export default function NotificationScreen() {
   };
 
   useEffect(() => { load(); }, [status]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [status]);
 
   const handlePress = async (item: ServerNotification) => {
     try {
@@ -145,6 +153,7 @@ export default function NotificationScreen() {
           data={notifications}
           keyExtractor={(item) => item.notificationId}
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           renderItem={({ item }) => (
             <Pressable
               onPress={() => handlePress(item)}
