@@ -1,4 +1,5 @@
 import axiosInstance from "@/utils/axios.util";
+import { STORAGE_LIMIT_GB } from "@/constants/storage";
 import * as SecureStore from "expo-secure-store";
 import {
   createBiometricKeyPair,
@@ -13,7 +14,7 @@ export type AuthUser = {
   email: string;
   nickname: string;
   plan: "free" | "pro";
-  storageUsed: number;
+  storageUsed: number | null;
   storageLimit: number;
 };
 
@@ -25,7 +26,18 @@ function unwrapData<T>(payload: T | { data?: T }): T {
 }
 
 function normalizeUserPlan(value: unknown): AuthUser["plan"] {
-  return String(value ?? "").trim().toUpperCase() === "PRO" ? "pro" : "free";
+  const plan = String(value ?? "").trim().toUpperCase();
+  if (plan === "FREE") return "free";
+  if (plan === "PRO") return "pro";
+  throw new Error("USER_PLAN_MISSING");
+}
+
+function normalizeStorageBytesToGb(bytes: unknown): number | null {
+  if (bytes !== undefined && bytes !== null) {
+    const value = Number(bytes);
+    return Number.isFinite(value) ? value / 1024 ** 3 : null;
+  }
+  return null;
 }
 
 export const PIN_LOGIN_EMAIL_KEY = "pinLoginEmail";
@@ -56,34 +68,18 @@ export async function loginWithPin(pinNumber: string): Promise<void> {
 export async function getCurrentUser(): Promise<AuthUser> {
   const response = await axiosInstance.get("/users/me");
   const data = unwrapData<Record<string, unknown>>(response);
-  const usedBytes = Number(
+  const plan = normalizeUserPlan(data.plan ?? data.userPlan ?? data.user_plan);
+  const usedBytes =
     data.storageUsedBytes ??
-      data.storage_used_bytes ??
-      data.usedStorageBytes ??
-      data.used_storage_bytes ??
-      0,
-  );
-  const quotaBytes = Number(
-    data.storageQuotaBytes ??
-      data.storage_quota_bytes ??
-      data.storageLimitBytes ??
-      data.storage_limit_bytes ??
-      5 * 1024 ** 3,
-  );
+    data.storage_used_bytes;
 
   return {
     id: String(data.userId ?? data.id ?? ""),
     email: String(data.email ?? ""),
     nickname: String(data.nickname ?? ""),
-    plan: normalizeUserPlan(data.plan ?? data.userPlan ?? data.user_plan),
-    storageUsed:
-      (data.storageUsed ?? data.storage_used) !== undefined
-        ? Number(data.storageUsed ?? data.storage_used)
-        : usedBytes / 1024 ** 3,
-    storageLimit:
-      (data.storageLimit ?? data.storage_limit) !== undefined
-        ? Number(data.storageLimit ?? data.storage_limit)
-        : quotaBytes / 1024 ** 3,
+    plan,
+    storageUsed: normalizeStorageBytesToGb(usedBytes),
+    storageLimit: STORAGE_LIMIT_GB[plan],
   };
 }
 

@@ -1,4 +1,4 @@
-import { Radius, Spacing } from '@/constants/theme';
+import { Colors, Radius, Spacing } from '@/constants/theme';
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, LayoutChangeEvent, StyleSheet, Text, View, ViewStyle } from 'react-native';
 
@@ -10,7 +10,7 @@ export interface CreditCardData {
   isBest?: boolean;
 }
 
-const RANK_COLORS = ['#1B5E43', '#4A1C8A', '#12306B'];
+const RANK_COLORS = [Colors.primaryDark, Colors.primary, Colors.primarySoft];
 const FALLBACK_COLOR = '#374151';
 
 interface Props {

@@ -34,6 +34,7 @@ export type ReceiptCategory = '식비' | '마트/편의점' | '카페' | '뷰티
 export interface Receipt {
   id: string;
   storeName: string;
+  spendCategoryId?: number;
   category: ReceiptCategory;
   amount: number;
   date: string;

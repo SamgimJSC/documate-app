@@ -5,6 +5,7 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
   AiStatus,
   AiStatusResponse,
+  TempDocumentListItem,
   getTempDocumentDetail,
   getTempDocumentList,
   getTempDocumentStatus,
@@ -62,6 +63,28 @@ function itemMatchesTab(item: ProcessingItem, tab: TabKey) {
   return true;
 }
 
+function toProcessingItem(item: TempDocumentListItem): ProcessingItem {
+  const createdAt = new Date(item.createdAt);
+  const hasValidDate = !Number.isNaN(createdAt.getTime());
+  return {
+    tempDocumentId: item.tempDocumentId,
+    status: item.aiStatus,
+    resultId: item.resultId ?? item.resultDocumentId ?? null,
+    resultDocumentId: item.resultDocumentId ?? null,
+    documentType: item.documentType ?? null,
+    uploadedAtDate: hasValidDate
+      ? createdAt.toLocaleDateString('ko-KR')
+      : '-',
+    uploadedAtTime: hasValidDate
+      ? createdAt.toLocaleTimeString('ko-KR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        })
+      : '-',
+  };
+}
+
 export default function ProcessingCenterScreen() {
   const router = useRouter();
   const { ids } = useLocalSearchParams<{ ids: string }>();
@@ -90,6 +113,32 @@ export default function ProcessingCenterScreen() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // 완료 후 문서 조회를 딱 한 번만 실행하는 가드
   const completionFetchedRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    getTempDocumentList()
+      .then((tempList) => {
+        if (!active) return;
+        setItems((previous) => {
+          const restored = tempList.map(toProcessingItem);
+          const restoredIds = new Set(
+            restored.map((item) => item.tempDocumentId),
+          );
+          return [
+            ...restored,
+            ...previous.filter(
+              (item) => !restoredIds.has(item.tempDocumentId),
+            ),
+          ];
+        });
+      })
+      .catch((error) => {
+        console.log('처리센터 임시 문서 복원 실패:', error);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);

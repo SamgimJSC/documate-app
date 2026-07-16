@@ -82,7 +82,6 @@ export default function LoginScreen() {
       useAuthStore.setState({
         isAuthenticated: true,
         isPinVerified: true,
-        token: "logged-in",
         user: {
           id: userData.id,
           email: userData.email,
@@ -134,9 +133,7 @@ export default function LoginScreen() {
       const user = await loginWithBiometricSignature();
       useAuthStore.setState({
         user,
-        token: "session",
         isAuthenticated: true,
-        isPinSet: true,
         isPinVerified: true,
         isBiometricEnabled: true,
       });

@@ -17,5 +17,10 @@ export type SpendCategory = {
 
 export async function getSpendCategories(): Promise<SpendCategory[]> {
   const response = await axiosInstance.get('/spend-categories');
-  return unwrapData<SpendCategory[]>(response);
+  const payload = unwrapData<
+    SpendCategory[] | { categories?: SpendCategory[] }
+  >(response);
+
+  if (Array.isArray(payload)) return payload;
+  return Array.isArray(payload?.categories) ? payload.categories : [];
 }

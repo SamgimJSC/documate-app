@@ -146,7 +146,6 @@ export default function PinSetupScreen() {
                 useAuthStore.setState({
                   isAuthenticated: false,
                   isPinVerified: false,
-                  token: null,
                 });
                 router.replace("/(auth)/login" as any);
               }}

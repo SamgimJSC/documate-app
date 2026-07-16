@@ -147,25 +147,28 @@ export async function sendTestNotificationIn10s() {
 // ===============================
 
 export type DocumentAlert = {
-  alert_id: string;
-  document_id: string;
-  offset_type: string | null;
-  notify_date: string;
-  reason: string;
-  channel_email: boolean;
-  channel_app_push: boolean;
-  channel_web_push: boolean;
-  is_sent: boolean;
-  created_at: string;
+  alertId: string;
+  documentId: string;
+  offsetType: AlertOffsetType;
+  notifyDate: string;
+  reason: string | null;
+  channelEmail: boolean;
+  channelAppPush: boolean;
+  channelWebPush: boolean;
+  isSent: boolean;
+  sentAt: string | null;
+  createdAt: string;
 };
 
+export type AlertOffsetType = 'M1' | 'M3' | 'M6' | 'CUSTOM';
+
 export type CreateAlertBody = {
-  notify_date: string;
-  reason: string;
-  offset_type?: string;
-  channel_email?: boolean;
-  channel_app_push?: boolean;
-  channel_web_push?: boolean;
+  offsetType: AlertOffsetType;
+  notifyDate: string;
+  reason?: string | null;
+  channelEmail?: boolean;
+  channelAppPush?: boolean;
+  channelWebPush?: boolean;
 };
 
 export type UpdateAlertBody = Partial<CreateAlertBody>;
@@ -200,16 +203,12 @@ export type NotificationStatus = "all" | "unread" | "read";
 
 export type ServerNotification = {
   notificationId: string;
-  document_id: string;
+  documentId: string | null;
+  category: string | null;
   title: string;
   body: string;
-  notify_date: string;
-  channel_email: boolean;
-  channel_app_push: boolean;
-  channel_web_push: boolean;
-  is_sent: boolean;
-  is_read: boolean;
-  created_at: string;
+  isRead: boolean;
+  sentAt: string;
 };
 
 export type CreateNotificationBody = {
@@ -265,10 +264,61 @@ export async function getServerNotifications(params: {
     per_page: String(per_page),
   });
 
-  return request<ServerNotification[]>(
+  const response = await request<Record<string, unknown>[]>(
     `/notifications?${query.toString()}`,
     { method: "GET" }
   );
+  const notifications = (Array.isArray(response) ? response : []).map(
+    normalizeServerNotification,
+  );
+  const filtered = notifications.filter((item) => {
+    if (status === 'unread') return !item.isRead;
+    if (status === 'read') return item.isRead;
+    return true;
+  });
+  const start = Math.max(0, page - 1) * per_page;
+  return filtered.slice(start, start + per_page);
+}
+
+function normalizeServerNotification(
+  raw: Record<string, unknown>,
+): ServerNotification {
+  return {
+    notificationId: String(raw.notificationId ?? raw.notification_id ?? ''),
+    documentId:
+      raw.documentId != null || raw.document_id != null
+        ? String(raw.documentId ?? raw.document_id)
+        : null,
+    category: raw.category != null ? String(raw.category) : null,
+    title: String(raw.title ?? ''),
+    body: String(raw.body ?? ''),
+    isRead: Boolean(raw.isRead ?? raw.is_read),
+    sentAt: String(
+      raw.sentAt ?? raw.sent_at ?? raw.notifyDate ?? raw.notify_date ??
+        raw.createdAt ?? raw.created_at ?? '',
+    ),
+  };
+}
+
+function normalizeDocumentAlert(raw: Record<string, unknown>): DocumentAlert {
+  return {
+    alertId: String(raw.alertId ?? raw.alert_id ?? ''),
+    documentId: String(raw.documentId ?? raw.document_id ?? ''),
+    offsetType: String(
+      raw.offsetType ?? raw.offset_type ?? 'CUSTOM',
+    ) as AlertOffsetType,
+    notifyDate: String(raw.notifyDate ?? raw.notify_date ?? ''),
+    reason: raw.reason == null ? null : String(raw.reason),
+    channelEmail: Boolean(raw.channelEmail ?? raw.channel_email),
+    channelAppPush: Boolean(raw.channelAppPush ?? raw.channel_app_push),
+    channelWebPush: Boolean(raw.channelWebPush ?? raw.channel_web_push),
+    isSent: Boolean(raw.isSent ?? raw.is_sent),
+    sentAt:
+      raw.sentAt != null || raw.sent_at != null
+        ? String(raw.sentAt ?? raw.sent_at)
+        : null,
+    createdAt: String(raw.createdAt ?? raw.created_at ?? ''),
+  };
 }
 
 // 알림 읽음 처리
@@ -310,10 +360,11 @@ export async function triggerNotificationScheduler() {
 
 // GET /documents/:documentId/alerts
 export async function getDocumentAlerts(documentId: string): Promise<DocumentAlert[]> {
-  return request<DocumentAlert[]>(
+  const response = await request<Record<string, unknown>[]>(
     `/documents/${documentId}/alerts`,
     { method: "GET" }
   );
+  return (Array.isArray(response) ? response : []).map(normalizeDocumentAlert);
 }
 
 // POST /documents/:documentId/alerts
@@ -321,10 +372,11 @@ export async function createDocumentAlert(
   documentId: string,
   body: CreateAlertBody
 ) {
-  return request<DocumentAlert>(`/documents/${documentId}/alerts`, {
+  const response = await request<Record<string, unknown>>(`/documents/${documentId}/alerts`, {
     method: "POST",
     body: JSON.stringify(body),
   });
+  return normalizeDocumentAlert(response);
 }
 
 // PATCH /documents/:documentId/alerts/:alertId

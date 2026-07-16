@@ -28,7 +28,7 @@
     "nickname": "string",
     "plan": "free" | "pro",
     "storageUsed": 1.2,
-    "storageLimit": 5
+    "storageLimit": 1
   },
   "token": "jwt-token",
   "isPinSet": true,
@@ -63,7 +63,7 @@
     "nickname": "홍길동",
     "plan": "free",
     "storageUsed": 0,
-    "storageLimit": 5
+    "storageLimit": 1
   },
   "token": "jwt-token",
   "isPinSet": false,
@@ -585,13 +585,13 @@
       "id": "free",
       "name": "Free",
       "price": 0,
-      "storageLimit": 5
+      "storageLimit": 1
     },
     {
       "id": "pro",
       "name": "Pro",
       "price": 4500,
-      "storageLimit": 50
+      "storageLimit": 10
     }
   ]
 }

@@ -7,8 +7,6 @@ function unwrapData<T>(payload: T | { data?: T }): T {
   return payload as T;
 }
 
-export const PRO_MONTHLY_AMOUNT = 3900;
-
 export type KakaoPaymentReadyResponse = {
   paymentId?: string;
   payment_id?: string;
@@ -19,6 +17,7 @@ export type KakaoPaymentReadyResponse = {
   next_redirect_pc_url?: string;
   next_redirect_mobile_url?: string;
   next_redirect_app_url?: string;
+  amount?: number;
 };
 
 export type PaymentHistoryItem = {
@@ -54,7 +53,9 @@ function normalizePayment(value: unknown): PaymentHistoryItem {
 
 /** 신규 구독 결제 준비. 결제 승인은 카카오페이의 서버 콜백에서 처리된다. */
 export async function readyKakaoSubscription(): Promise<KakaoPaymentReadyResponse> {
-  const response = await axiosInstance.post('/payments/kakao/ready');
+  const response = await axiosInstance.post('/payments/kakao/ready', {
+    billingCycle: 'MONTHLY',
+  });
   return unwrapData<KakaoPaymentReadyResponse>(response);
 }
 
