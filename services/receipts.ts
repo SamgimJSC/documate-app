@@ -22,6 +22,9 @@ type ApiReceiptItem = {
   date?: string;
   categoryName?: string | null;
   category?: string;
+  spendCategoryId?: number | string | null;
+  spend_category_id?: number | string | null;
+  categoryId?: number | string | null;
   icon?: string;
   fileUrl?: string | null;
   image_url?: string;
@@ -94,6 +97,9 @@ function unwrapApiResponse<T>(result: T | ApiResponse<T>): T {
 
 function toReceipt(receipt: ApiReceiptItem): Receipt {
   const amount = Number(receipt.totalAmount ?? receipt.amount ?? 0);
+  const spendCategoryId = Number(
+    receipt.spendCategoryId ?? receipt.spend_category_id ?? receipt.categoryId,
+  );
   const fileSizeBytes = Number(
     receipt.fileSizeBytes ?? receipt.file_size_bytes ?? 0,
   );
@@ -101,6 +107,9 @@ function toReceipt(receipt: ApiReceiptItem): Receipt {
   return {
     id: receipt.receiptId ?? receipt.receipt_id ?? receipt.id ?? '',
     storeName: receipt.storeName ?? receipt.store_name ?? '',
+    spendCategoryId: Number.isFinite(spendCategoryId)
+      ? spendCategoryId
+      : undefined,
     category: ((receipt.categoryName ?? receipt.category ?? '기타') as ReceiptCategory),
     amount: Number.isFinite(amount) ? amount : 0,
     date:

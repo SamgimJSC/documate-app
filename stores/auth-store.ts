@@ -28,18 +28,16 @@ export interface User {
   email: string;
   nickname: string;
   plan: "free" | "pro";
-  storageUsed: number;
+  storageUsed: number | null;
   storageLimit: number;
 }
 
 interface AuthState {
   user: User | null;
-  token: string | null;
   isAuthenticated: boolean;
   isPinVerified: boolean;
-  isPinSet: boolean;
+  isPinSet: boolean | null;
   pin: string;
-  password: string;
   isBiometricEnabled: boolean;
 
   login: (email: string, password: string) => Promise<void>;
@@ -60,7 +58,7 @@ interface AuthState {
   enableBiometric: (email?: string) => Promise<void>;
   disableBiometric: () => Promise<void>;
   updateNickname: (nickname: string) => Promise<void>;
-  upgradeToPro: () => void;
+  upgradeToPro: () => Promise<void>;
 }
 
 function clearUserCaches(): void {
@@ -72,13 +70,10 @@ function clearUserCaches(): void {
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
   user: null,
-  token: null,
   isAuthenticated: false,
   isPinVerified: false,
-  // TODO [release]: initialize as isPinSet: false, pin: "", password: "".
-  isPinSet: true,
+  isPinSet: null,
   pin: "",
-  password: "test",
   isBiometricEnabled: false,
 
   login: async (email, password) => {
@@ -86,7 +81,6 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     const userData = await getCurrentUser();
     set({
       user: userData,
-      token: "logged-in",
       isAuthenticated: true,
       isPinVerified: true,
     });
@@ -129,10 +123,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     clearUserCaches();
     set({
       user: null,
-      token: null,
       isAuthenticated: false,
       isPinVerified: false,
-      isPinSet: false,
+      isPinSet: null,
       pin: "",
       isBiometricEnabled: keepBiometricLogin,
     });
@@ -151,10 +144,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     void deleteBiometricKeys();
     set({
       user: null,
-      token: null,
       isAuthenticated: false,
       isPinVerified: false,
-      isPinSet: false,
+      isPinSet: null,
       pin: "",
       isBiometricEnabled: false,
     });
@@ -236,8 +228,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }));
   },
 
-  upgradeToPro: () =>
-    set((state) => ({
-      user: state.user ? { ...state.user, plan: "pro", storageLimit: 50 } : null,
-    })),
+  upgradeToPro: async () => {
+    const user = await getCurrentUser();
+    set({ user });
+  },
 }));

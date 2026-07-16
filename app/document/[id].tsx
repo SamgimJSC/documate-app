@@ -306,7 +306,10 @@ function formatFileSize(bytes: number) {
 }
 
 export default function DocumentDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, registering } = useLocalSearchParams<{
+    id: string;
+    registering?: string;
+  }>();
   const router = useRouter();
 
   const goBack = () => {
@@ -317,7 +320,7 @@ export default function DocumentDetailScreen() {
     }
   };
   const [downloading, setDownloading] = useState(false);
-  const [fetching, setFetching] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const { pin: storedPin, verifyPinWithServer } = useAuthStore();
   const hasFetchedRef = useRef(false);
   const { documents, toggleFavorite, removeDocument, fetchDocuments, toggleSecured, updateDocument } = useDocStore();
@@ -361,6 +364,11 @@ export default function DocumentDetailScreen() {
         <SafeAreaView style={styles.safe}>
           <View style={styles.center}>
             <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>
+              {registering === '1'
+                ? '문서를 등록하고 있어요...'
+                : '문서를 불러오고 있어요...'}
+            </Text>
           </View>
         </SafeAreaView>
       );
@@ -400,7 +408,7 @@ export default function DocumentDetailScreen() {
   };
 
   const handleDeleteAlert = async (alertId: string) => {
-    setServerAlerts((prev) => prev.filter((a) => a.alert_id !== alertId));
+    setServerAlerts((prev) => prev.filter((a) => a.alertId !== alertId));
     try {
       await deleteAlert(doc.id, alertId);
     } catch (e) {
@@ -411,13 +419,13 @@ export default function DocumentDetailScreen() {
   const handleToggleAlertPush = async (alertId: string, currentValue: boolean) => {
     const newValue = !currentValue;
     setServerAlerts((prev) =>
-      prev.map((a) => a.alert_id === alertId ? { ...a, channel_app_push: newValue } : a)
+      prev.map((a) => a.alertId === alertId ? { ...a, channelAppPush: newValue } : a)
     );
     try {
-      await updateAlert(doc.id, alertId, { channel_app_push: newValue });
+      await updateAlert(doc.id, alertId, { channelAppPush: newValue });
     } catch (e) {
       setServerAlerts((prev) =>
-        prev.map((a) => a.alert_id === alertId ? { ...a, channel_app_push: currentValue } : a)
+        prev.map((a) => a.alertId === alertId ? { ...a, channelAppPush: currentValue } : a)
       );
       console.log('알림 토글 실패:', e);
     }
@@ -621,25 +629,25 @@ export default function DocumentDetailScreen() {
             </TouchableOpacity>
           </View>
           {(() => {
-            const validAlerts = serverAlerts.filter((a) => !!a.notify_date);
+            const validAlerts = serverAlerts.filter((a) => !!a.notifyDate);
             if (validAlerts.length === 0) {
               return <Text style={styles.notifEmpty}>설정된 알림이 없습니다</Text>;
             }
             return (
               <View style={styles.notifList}>
                 {validAlerts.map((alert, index) => (
-                  <View key={alert.alert_id ?? String(index)} style={styles.notifItem}>
+                  <View key={alert.alertId ?? String(index)} style={styles.notifItem}>
                     <View style={styles.notifInfo}>
-                      <Text style={styles.notifLabel}>{alert.notify_date!.split('T')[0]}</Text>
+                      <Text style={styles.notifLabel}>{alert.notifyDate.split('T')[0]}</Text>
                     </View>
                     <Switch
-                      value={!!alert.channel_app_push}
-                      onValueChange={() => handleToggleAlertPush(alert.alert_id, !!alert.channel_app_push)}
+                      value={alert.channelAppPush}
+                      onValueChange={() => handleToggleAlertPush(alert.alertId, alert.channelAppPush)}
                       trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
-                      thumbColor={alert.channel_app_push ? Colors.primary : Colors.gray400}
+                      thumbColor={alert.channelAppPush ? Colors.primary : Colors.gray400}
                     />
                     <TouchableOpacity
-                      onPress={() => handleDeleteAlert(alert.alert_id)}
+                      onPress={() => handleDeleteAlert(alert.alertId)}
                       style={styles.notifDeleteBtn}
                       hitSlop={8}>
                       <Ionicons name="trash-outline" size={18} color={Colors.error} />
@@ -760,6 +768,7 @@ export default function DocumentDetailScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
+  loadingText: { fontSize: 15, color: Colors.gray500 },
   notFoundText: { fontSize: 16, color: Colors.gray500 },
   backLink: { fontSize: 14, color: Colors.primary, fontWeight: '600' },
   header: {

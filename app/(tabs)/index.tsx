@@ -1,14 +1,15 @@
 import { Badge } from '@/components/common/badge';
 import { Colors, Radius, Spacing, TAB_BAR_SPACE } from '@/constants/theme';
+import { getServerNotifications } from '@/services/notifications';
 import { getTempDocumentList } from '@/services/upload';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocStore } from '@/stores/doc-store';
 import { useReceiptStore } from '@/stores/receipt-store';
 import { showToast } from '@/stores/toast-store';
-import { calculateStorageUsedGb, formatStorageUsed } from '@/utils/storage-usage';
+import { formatStorageUsed } from '@/utils/storage-usage';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Animated,
   Platform,
@@ -54,14 +55,34 @@ export default function HomeScreen() {
   const fetchDocuments = useDocStore((s) => s.fetchDocuments);
   const isDocsLoading = useDocStore((s) => s.isLoading);
   const getTotalForMonth = useReceiptStore((s) => s.getTotalForMonth);
-  const receipts = useReceiptStore((s) => s.receipts);
   const fetchReceipts = useReceiptStore((s) => s.fetchReceipts);
   const [activeTab, setActiveTab] = useState<HomeTab>('recent');
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   useEffect(() => {
     fetchDocuments();
     fetchReceipts();
   }, [fetchDocuments, fetchReceipts]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      getServerNotifications({ status: 'all', page: 1, per_page: 100 })
+        .then((notifications) => {
+          if (active) {
+            setUnreadNotificationCount(
+              notifications.filter((item) => !item.isRead).length,
+            );
+          }
+        })
+        .catch((error) => {
+          console.log('읽지 않은 알림 수 조회 실패:', error);
+        });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const today = new Date().toISOString().split('T')[0];
   const currentMonth = today.slice(0, 7);
@@ -75,13 +96,10 @@ export default function HomeScreen() {
     ? [...documents].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)).slice(0, 5)
     : documents.filter((d) => d.isFavorite).slice(0, 5);
 
-  const storageUsed = calculateStorageUsedGb(
-    documents,
-    receipts,
-    user?.storageUsed ?? 0,
-  );
-  const storagePercent = user
-    ? Math.round((storageUsed / user.storageLimit) * 100)
+  const storageUsed = user?.storageUsed ?? null;
+  const storageLimit = user?.storageLimit;
+  const storagePercent = storageUsed !== null && storageLimit
+    ? Math.min(100, Math.round((storageUsed / storageLimit) * 100))
     : 0;
 
   const getDaysUntil = (dateStr?: string) => {
@@ -145,9 +163,11 @@ export default function HomeScreen() {
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/notification' as any)} style={styles.notifBtn}>
             <Ionicons name="notifications-outline" size={24} color={Colors.white} />
-            {expiringDocs.length > 0 && (
+            {unreadNotificationCount > 0 && (
               <View style={styles.notifBadge}>
-                <Text style={styles.notifCount}>{expiringDocs.length}</Text>
+                <Text style={styles.notifCount}>
+                  {Math.min(unreadNotificationCount, 99)}
+                </Text>
               </View>
             )}
           </TouchableOpacity>
@@ -165,7 +185,9 @@ export default function HomeScreen() {
             <View style={[styles.storageBarFill, { width: `${storagePercent}%` as any }]} />
           </View>
           <Text style={styles.storageText}>
-            {formatStorageUsed(storageUsed)} / {user?.storageLimit}GB 사용 중
+            {storageUsed !== null && storageLimit !== undefined
+              ? `${formatStorageUsed(storageUsed)} / ${storageLimit}GB 사용 중`
+              : "서버 저장용량 정보 없음"}
           </Text>
         </View>
 

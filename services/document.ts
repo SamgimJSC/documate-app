@@ -89,11 +89,10 @@ export type GetDocumentsResponse = {
 };
 
 export type CreateDocumentBody = {
-  title: string;
-  fileUrl: string;
-  fileName: string;
-  fileType: DocumentFileType;
+  inputMethod: "OCR" | "MANUAL";
   categoryId?: number;
+  title?: string;
+  fileType?: Exclude<DocumentFileType, "PDF"> | null;
   fileSizeBytes?: string;
   pageCount?: number;
   ocrText?: string;
@@ -102,6 +101,10 @@ export type CreateDocumentBody = {
   issueDate?: string;
   expiryDate?: string;
   renewalDate?: string;
+  files?: {
+    fileUrl: string;
+    pageNo: number;
+  }[];
 };
 
 export type UpdateDocumentBody = {

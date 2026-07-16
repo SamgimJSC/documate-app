@@ -7,11 +7,9 @@ import {
   getTopStores,
   getWeekdaySummary,
 } from "@/services/reports";
-import {
-  CardRecommendation,
-  getCardRecommendations,
-} from "@/services/cards";
+import { getCardRecommendations, requestCardAi } from "@/services/cards";
 import { getSubscription } from "@/services/subscriptions";
+import { getCurrentUser } from "@/services/auth";
 import { useReceiptStore } from "@/stores/receipt-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { Ionicons } from "@expo/vector-icons";
@@ -175,8 +173,7 @@ export default function ReceiptScreen() {
   const [serverTopStores, setServerTopStores] = useState<TopStoreItem[]>([]);
   const [serverWeekdaySummary, setServerWeekdaySummary] = useState<WeekdaySummaryItem[]>([]);
   const [annualReportLoading, setAnnualReportLoading] = useState(false);
-  const [topCardRecommendation, setTopCardRecommendation] = useState<CardRecommendation | null>(null);
-  const [cardRecommendationLoading, setCardRecommendationLoading] = useState(false);
+  const [cardRecommendationRequesting, setCardRecommendationRequesting] = useState(false);
   const [subscriptionPlan, setSubscriptionPlan] = useState<"free" | "pro" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -232,9 +229,11 @@ export default function ReceiptScreen() {
         if (!mounted) return;
         const nextPlan = subscription.status === "ACTIVE" ? "pro" : "free";
         setSubscriptionPlan(nextPlan);
-        if (nextPlan === "pro" && user.plan !== "pro") {
+        if (nextPlan !== user.plan) {
+          const refreshedUser = await getCurrentUser();
+          if (!mounted) return;
           useAuthStore.setState({
-            user: { ...user, plan: "pro" },
+            user: refreshedUser,
           });
         }
       } catch (error) {
@@ -279,27 +278,40 @@ export default function ReceiptScreen() {
     void loadAnnualReports();
   }, [currentMonth, isPro, selectedYear]);
 
-  useEffect(() => {
+  const handleRequestCardRecommendation = async () => {
     if (!isPro) {
-      setTopCardRecommendation(null);
+      router.push("/pro-promotion" as any);
       return;
     }
 
-    const loadTopCardRecommendation = async () => {
-      setCardRecommendationLoading(true);
-      try {
-        const recommendations = await getCardRecommendations();
-        setTopCardRecommendation(recommendations[0] ?? null);
-      } catch (error) {
-        console.log("카드 추천 요약 조회 실패:", error);
-        setTopCardRecommendation(null);
-      } finally {
-        setCardRecommendationLoading(false);
-      }
-    };
+    if (cardRecommendationRequesting) return;
 
-    void loadTopCardRecommendation();
-  }, [isPro]);
+    setCardRecommendationRequesting(true);
+    try {
+      const currentRecommendations = await getCardRecommendations();
+      const previousRecommendedAt = currentRecommendations.reduce(
+        (latest, recommendation) =>
+          recommendation.recommendedAt > latest
+            ? recommendation.recommendedAt
+            : latest,
+        "",
+      );
+
+      await requestCardAi();
+      router.push({
+        pathname: "/card-recommendation",
+        params: {
+          refresh: "1",
+          previousRecommendedAt,
+        },
+      } as any);
+    } catch (error) {
+      console.log("AI 카드 추천 요청 실패:", error);
+      Alert.alert("카드 추천 요청 실패", "잠시 후 다시 시도해주세요.");
+    } finally {
+      setCardRecommendationRequesting(false);
+    }
+  };
 
   const receipts = getReceiptsForMonth(currentMonth);
   const monthlyTotal = receipts.reduce(
@@ -986,59 +998,50 @@ export default function ReceiptScreen() {
         </View>
 
         {/* 카드 추천 요약 */}
-        <TouchableOpacity
+        <View
           style={styles.cardRecommendBanner}
-          onPress={() => router.push('/card-recommendation' as any)}
-          activeOpacity={0.85}
         >
           <View style={styles.cardRecommendHeader}>
             <View style={styles.cardRecommendTitleRow}>
               <Ionicons name="card-outline" size={19} color={Colors.pro} />
-              <Text style={styles.cardRecommendTitle}>
-                {topCardRecommendation ? "오늘의 추천 카드" : "카드 추천"}
-              </Text>
+              <Text style={styles.cardRecommendTitle}>카드 추천</Text>
               <View style={styles.cardRecommendProBadge}>
                 <Text style={styles.cardRecommendProText}>PRO</Text>
               </View>
             </View>
-            {cardRecommendationLoading ? (
-              <ActivityIndicator size="small" color={Colors.pro} />
-            ) : null}
           </View>
 
-          {topCardRecommendation ? (
-            <View style={styles.cardRecommendPreview}>
-              <View style={styles.cardRecommendIcon}>
-                <Ionicons name="sparkles" size={18} color={Colors.white} />
-              </View>
-              <View style={styles.cardRecommendText}>
-                <Text style={styles.cardRecommendName} numberOfLines={1}>
-                  {topCardRecommendation.cardName ?? "추천 카드"}
-                </Text>
-                <Text style={styles.cardRecommendIssuer} numberOfLines={1}>
-                  {topCardRecommendation.issuer ?? "카드사 정보 없음"}
-                  {topCardRecommendation.matchScore !== null
-                    ? ` · AI ${Math.round(topCardRecommendation.matchScore ?? 0)}점`
-                    : ""}
-                </Text>
-                {topCardRecommendation.reason ? (
-                  <Text style={styles.cardRecommendReason} numberOfLines={2}>
-                    {topCardRecommendation.reason}
-                  </Text>
-                ) : null}
-              </View>
+          <View style={styles.cardRecommendFeature}>
+            <View style={styles.cardRecommendFeatureIcon}>
+              <Ionicons name="sparkles-outline" size={18} color={Colors.primaryDark} />
             </View>
-          ) : (
-            <Text style={styles.cardRecommendSub}>
-              주요 소비 카테고리를 기반으로 혜택이 높은 카드를 확인할 수 있습니다.
-            </Text>
-          )}
-
-          <View style={styles.cardRecommendFooter}>
-            <Text style={styles.cardRecommendBtnText}>나에게 맞는 카드 더 보기</Text>
-            <Ionicons name="chevron-forward" size={15} color={Colors.white} />
+            <View style={styles.cardRecommendCopy}>
+              <Text style={styles.cardRecommendHeadline}>
+                소비 패턴에 맞는{"\n"}혜택 카드를 추천해드려요.
+              </Text>
+              <Text style={styles.cardRecommendSub}>
+                등록된 영수증의 카테고리와 지출 흐름을 기준으로 예상 혜택이 높은
+                카드를 정리했어요.
+              </Text>
+            </View>
           </View>
-        </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.cardRecommendFooter}
+            onPress={() => void handleRequestCardRecommendation()}
+            activeOpacity={0.85}
+            disabled={cardRecommendationRequesting}
+          >
+            {cardRecommendationRequesting ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <>
+                <Text style={styles.cardRecommendBtnText}>나에게 맞는 카드 추천받기</Text>
+                <Ionicons name="chevron-forward" size={15} color={Colors.white} />
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -1585,27 +1588,38 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   cardRecommendProText: { fontSize: 10, fontWeight: "800", color: Colors.white },
-  cardRecommendPreview: {
+  cardRecommendFeature: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: Spacing.sm,
     borderRadius: Radius.md,
-    backgroundColor: Colors.proLight,
+    backgroundColor: Colors.chipBg,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
     padding: Spacing.sm,
   },
-  cardRecommendIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.pro,
+  cardRecommendFeatureIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  cardRecommendText: { flex: 1, minWidth: 0, gap: 2 },
-  cardRecommendName: { fontSize: 14, fontWeight: "800", color: Colors.gray900 },
-  cardRecommendIssuer: { fontSize: 12, color: Colors.gray500 },
-  cardRecommendReason: { marginTop: 2, fontSize: 12, lineHeight: 16, color: Colors.gray700 },
-  cardRecommendSub: { fontSize: 12, color: Colors.gray500, lineHeight: 16 },
+  cardRecommendCopy: { flex: 1, gap: 5 },
+  cardRecommendHeadline: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: Colors.darkText,
+    lineHeight: 23,
+    letterSpacing: -0.4,
+  },
+  cardRecommendSub: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.muted,
+    lineHeight: 18,
+  },
   cardRecommendFooter: {
     backgroundColor: Colors.pro,
     borderRadius: Radius.md,

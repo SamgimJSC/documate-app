@@ -6,6 +6,10 @@ import {
   getReceiptDetail,
   updateReceipt as updateReceiptApi,
 } from "@/services/receipts";
+import {
+  getSpendCategories,
+  SpendCategory,
+} from "@/services/spend-categories";
 import { useReceiptStore } from "@/stores/receipt-store";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -30,6 +34,7 @@ type EditForm = {
   storeName: string;
   amount: string;
   date: string;
+  categoryId: number | null;
   paymentItem: string;
   memo: string;
 };
@@ -70,11 +75,26 @@ function formatPaymentItem(value?: string) {
   }
 }
 
-function toForm(receipt: Receipt): EditForm {
+function getSpendCategoryId(category: SpendCategory): number | undefined {
+  return category.spendCategoryId ?? category.categoryId;
+}
+
+function toForm(
+  receipt: Receipt,
+  categories: SpendCategory[] = [],
+): EditForm {
+  const categoryList = Array.isArray(categories) ? categories : [];
+  const matchedCategory = categoryList.find(
+    (category) => category.name === receipt.category,
+  );
+
   return {
     storeName: receipt.storeName,
     amount: String(receipt.amount || ""),
     date: receipt.date,
+    categoryId:
+      receipt.spendCategoryId ??
+      (matchedCategory ? getSpendCategoryId(matchedCategory) ?? null : null),
     paymentItem: receipt.paymentItem ?? "",
     memo: receipt.memo ?? "",
   };
@@ -94,15 +114,54 @@ export default function ReceiptDetailScreen() {
   const [isLoading, setIsLoading] = useState(Boolean(id));
   const [editVisible, setEditVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [spendCategories, setSpendCategories] = useState<SpendCategory[]>([]);
   const [form, setForm] = useState<EditForm>(
     receiptFromStore ? toForm(receiptFromStore) : {
       storeName: "",
       amount: "",
       date: "",
+      categoryId: null,
       paymentItem: "",
       memo: "",
     },
   );
+
+  useEffect(() => {
+    let mounted = true;
+
+    void getSpendCategories()
+      .then((categories) => {
+        if (mounted) {
+          setSpendCategories(Array.isArray(categories) ? categories : []);
+        }
+      })
+      .catch((error) => {
+        console.log("소비 카테고리 조회 실패:", error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const categoryList = Array.isArray(spendCategories)
+      ? spendCategories
+      : [];
+    if (!receipt || form.categoryId !== null || categoryList.length === 0) {
+      return;
+    }
+
+    const matchedCategory = categoryList.find(
+      (category) => category.name === receipt.category,
+    );
+    const categoryId = matchedCategory
+      ? getSpendCategoryId(matchedCategory)
+      : undefined;
+    if (categoryId !== undefined) {
+      setForm((current) => ({ ...current, categoryId }));
+    }
+  }, [form.categoryId, receipt, spendCategories]);
 
   useEffect(() => {
     let mounted = true;
@@ -163,7 +222,7 @@ export default function ReceiptDetailScreen() {
 
   const openEdit = () => {
     if (!receipt) return;
-    setForm(toForm(receipt));
+    setForm(toForm(receipt, spendCategories));
     setEditVisible(true);
   };
 
@@ -183,6 +242,10 @@ export default function ReceiptDetailScreen() {
       Alert.alert("입력 확인", "결제일은 YYYY-MM-DD 형식으로 입력해주세요.");
       return;
     }
+    if (form.categoryId === null) {
+      Alert.alert("입력 확인", "카테고리를 선택해주세요.");
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -190,12 +253,21 @@ export default function ReceiptDetailScreen() {
         storeName: form.storeName.trim(),
         totalAmount: amount,
         purchaseDate: form.date.trim(),
+        spendCategoryId: form.categoryId,
         paymentItem: form.paymentItem.trim() || undefined,
         memo: form.memo.trim() || undefined,
       });
+      const categoryList = Array.isArray(spendCategories)
+        ? spendCategories
+        : [];
+      const selectedCategory = categoryList.find(
+        (category) => getSpendCategoryId(category) === form.categoryId,
+      );
       const merged = {
         ...receipt,
         ...saved,
+        spendCategoryId: form.categoryId,
+        category: (selectedCategory?.name ?? saved.category) as Receipt["category"],
       };
       setReceipt(merged);
       updateReceipt(merged);
@@ -403,6 +475,48 @@ export default function ReceiptDetailScreen() {
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={Colors.gray400}
                 />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>카테고리</Text>
+                {Array.isArray(spendCategories) && spendCategories.length > 0 ? (
+                  <View style={styles.categoryChipRow}>
+                    {spendCategories.map((category) => {
+                      const categoryId = getSpendCategoryId(category);
+                      if (categoryId === undefined) return null;
+                      const selected = form.categoryId === categoryId;
+
+                      return (
+                        <TouchableOpacity
+                          key={categoryId}
+                          style={[
+                            styles.categoryChip,
+                            selected && styles.categoryChipSelected,
+                          ]}
+                          onPress={() =>
+                            setForm((current) => ({
+                              ...current,
+                              categoryId,
+                            }))
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.categoryChipText,
+                              selected && styles.categoryChipTextSelected,
+                            ]}
+                          >
+                            {category.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={styles.categoryLoadingText}>
+                    카테고리를 불러오는 중이에요.
+                  </Text>
+                )}
               </View>
 
               <View style={styles.field}>
@@ -631,6 +745,30 @@ const styles = StyleSheet.create({
   modalContent: { padding: Spacing.lg, gap: Spacing.md },
   field: { gap: Spacing.xs },
   fieldLabel: { fontSize: 13, fontWeight: "700", color: Colors.gray700 },
+  categoryChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.xs,
+  },
+  categoryChip: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.white,
+  },
+  categoryChipSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+  },
+  categoryChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.textSub,
+  },
+  categoryChipTextSelected: { color: Colors.primaryDark },
+  categoryLoadingText: { fontSize: 12, color: Colors.muted },
   input: {
     minHeight: 46,
     borderWidth: 1,

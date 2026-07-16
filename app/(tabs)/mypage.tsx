@@ -10,9 +10,8 @@ import {
 import { ConsentType, getMyConsents, updateMyConsent } from "@/services/users";
 import { useAuthStore } from "@/stores/auth-store";
 import { useDocStore } from "@/stores/doc-store";
-import { useReceiptStore } from "@/stores/receipt-store";
-import { calculateStorageUsedGb, formatStorageUsed } from "@/utils/storage-usage";
-import { Ionicons } from "@expo/vector-icons";
+import { formatStorageUsed } from "@/utils/storage-usage";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { isAxiosError } from "axios";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -29,7 +28,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type IconName = React.ComponentProps<typeof Ionicons>["name"];
+type IconName = React.ComponentProps<typeof Ionicons>["name"] | "crown-outline";
 
 interface MenuItemProps {
   icon: IconName;
@@ -55,11 +54,19 @@ function MenuItem({
   const content = (
     <>
       <View style={[styles.menuIconWrap, danger && styles.menuIconDanger]}>
-        <Ionicons
-          name={icon}
-          size={18}
-          color={danger ? Colors.error : Colors.primary}
-        />
+        {icon === "crown-outline" ? (
+          <MaterialCommunityIcons
+            name="crown-outline"
+            size={20}
+            color={Colors.primaryDark}
+          />
+        ) : (
+          <Ionicons
+            name={icon}
+            size={18}
+            color={danger ? Colors.error : Colors.primary}
+          />
+        )}
       </View>
       <Text style={[styles.menuLabel, danger && styles.menuLabelDanger]}>
         {label}
@@ -105,8 +112,6 @@ export default function MyPageScreen() {
   const router = useRouter();
   const documents = useDocStore((state) => state.documents);
   const fetchDocuments = useDocStore((state) => state.fetchDocuments);
-  const receipts = useReceiptStore((state) => state.receipts);
-  const fetchReceipts = useReceiptStore((state) => state.fetchReceipts);
   const {
     user,
     logout,
@@ -127,13 +132,10 @@ export default function MyPageScreen() {
   const [nicknameMessage, setNicknameMessage] = useState<string | null>(null);
   const [biometricUpdating, setBiometricUpdating] = useState(false);
 
-  const storageUsed = calculateStorageUsedGb(
-    documents,
-    receipts,
-    user?.storageUsed ?? 0,
-  );
-  const storagePercent = user
-    ? Math.min(100, Math.round((storageUsed / user.storageLimit) * 100))
+  const storageUsed = user?.storageUsed ?? null;
+  const storageLimit = user?.storageLimit;
+  const storagePercent = storageUsed !== null && storageLimit
+    ? Math.min(100, Math.round((storageUsed / storageLimit) * 100))
     : 0;
 
   useEffect(() => {
@@ -141,8 +143,8 @@ export default function MyPageScreen() {
   }, [user]);
 
   useEffect(() => {
-    void Promise.all([fetchDocuments(), fetchReceipts()]);
-  }, [fetchDocuments, fetchReceipts]);
+    void fetchDocuments();
+  }, [fetchDocuments]);
 
   useEffect(() => {
     void Promise.all([getNotificationSettings(), getMyConsents()])
@@ -406,8 +408,9 @@ export default function MyPageScreen() {
           <View style={styles.storageRow}>
             <Text style={styles.storageLabel}>스토리지 사용량</Text>
             <Text style={styles.storageValue}>
-              {formatStorageUsed(storageUsed)} /{" "}
-              {user?.storageLimit ?? 0}GB
+              {storageUsed !== null && storageLimit !== undefined
+                ? `${formatStorageUsed(storageUsed)} / ${storageLimit}GB`
+                : "서버 저장용량 정보 없음"}
             </Text>
           </View>
           <View style={styles.storageBar}>
@@ -464,7 +467,7 @@ export default function MyPageScreen() {
             </TouchableOpacity>
           ) : (
             <MenuItem
-              icon="star-outline"
+              icon="crown-outline"
               label="Pro 플랜 관리"
               onPress={() => router.push("/pro-promotion" as any)}
             />

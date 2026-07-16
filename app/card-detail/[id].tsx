@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const RANK_COLORS = ['#1B5E43', '#4A1C8A', '#12306B'];
+const RANK_COLORS = [Colors.primaryDark, Colors.primary, Colors.primarySoft];
 
 function formatWon(value: number | null | undefined) {
   if (value === null || value === undefined) return '-';

@@ -26,8 +26,8 @@ export const Colors = {
   error: "#C62828",
   errorLight: "#FFEBEE",
 
-  pro: "#7C3AED",
-  proLight: "#F3E8FF",
+  pro: "#3E7773",
+  proLight: "#EDF7F6",
 
   white: "#FFFFFF",
 

@@ -84,11 +84,16 @@ function AuthGuard() {
     const timeoutId = setTimeout(() => {
       if (!isAuthenticated && !inAuth) {
         router.replace("/(auth)/login" as any);
-      } else if (isAuthenticated && isPinSet && !isPinVerified && !inAuth) {
+      } else if (
+        isAuthenticated &&
+        isPinSet === true &&
+        !isPinVerified &&
+        !inAuth
+      ) {
         router.replace("/(auth)/pin-verify" as any);
       } else if (
         isAuthenticated &&
-        (isPinVerified || !isPinSet) &&
+        (isPinVerified || isPinSet === false) &&
         inAuth &&
         authEntryScreens.includes(authScreen)
       ) {

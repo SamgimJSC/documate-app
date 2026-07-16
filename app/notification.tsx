@@ -68,24 +68,24 @@ export default function NotificationScreen() {
 
   const handlePress = async (item: ServerNotification) => {
     try {
-      if (!item.is_read) {
+      if (!item.isRead) {
         await markServerNotificationRead(item.notificationId);
         setNotifications((prev) =>
-          prev.map((n) => (n.notificationId === item.notificationId ? { ...n, is_read: true } : n))
+          prev.map((n) => (n.notificationId === item.notificationId ? { ...n, isRead: true } : n))
         );
       }
     } catch (e) {
       console.log('읽음 처리 실패:', e);
     }
-    if (item.document_id) {
-      router.push(`/document/${item.document_id}` as any);
+    if (item.documentId) {
+      router.push(`/document/${item.documentId}` as any);
     }
   };
 
   const handleReadAll = async () => {
     try {
       await markAllServerNotificationsRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     } catch (e) {
       console.log('전체 읽음 처리 실패:', e);
     }
@@ -104,7 +104,7 @@ export default function NotificationScreen() {
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -159,17 +159,17 @@ export default function NotificationScreen() {
               onPress={() => handlePress(item)}
               style={({ pressed }) => [
                 styles.card,
-                !item.is_read && styles.cardUnread,
+                !item.isRead && styles.cardUnread,
                 pressed && styles.cardPressed,
               ]}
             >
-              <View style={[styles.dot, item.is_read && styles.dotRead]} />
+              <View style={[styles.dot, item.isRead && styles.dotRead]} />
               <View style={styles.cardBody}>
                 <View style={styles.cardRow}>
-                  <Text style={[styles.cardTitle, !item.is_read && styles.cardTitleUnread]} numberOfLines={1}>
+                  <Text style={[styles.cardTitle, !item.isRead && styles.cardTitleUnread]} numberOfLines={1}>
                     {item.title}
                   </Text>
-                  <Text style={styles.cardDate}>{formatDate(item.notify_date)}</Text>
+                  <Text style={styles.cardDate}>{formatDate(item.sentAt)}</Text>
                   <TouchableOpacity
                     onPress={(event) => {
                       event.stopPropagation();
@@ -182,7 +182,7 @@ export default function NotificationScreen() {
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.cardBody2} numberOfLines={2}>{item.body}</Text>
-                {item.document_id && (
+                {item.documentId && (
                   <View style={styles.docTag}>
                     <Ionicons name="document-outline" size={12} color={Colors.primary} />
                     <Text style={styles.docTagText}>문서 보기</Text>

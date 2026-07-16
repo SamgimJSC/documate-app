@@ -28,6 +28,11 @@ export interface CardRecommendation {
   recommendedAt: string;
 }
 
+export interface CardDetail extends DefaultCard {
+  sourceUrl: string | null;
+  benefits: Record<string, unknown> | null;
+}
+
 export interface CheckResult {
   hasReceipt: boolean;
   defaultCards: DefaultCard[];
@@ -75,4 +80,12 @@ export async function getCardRecommendations(): Promise<CardRecommendation[]> {
   );
   const payload = unwrapApiResponse(result);
   return payload.recommendations ?? [];
+}
+
+/** 카드 외부 페이지 URL과 상세 혜택 조회 */
+export async function getCardDetail(cardId: string): Promise<CardDetail> {
+  const result = await cardRequest<CardDetail | ApiResponse<CardDetail>>(
+    `/cards/${encodeURIComponent(cardId)}`,
+  );
+  return unwrapApiResponse(result);
 }
