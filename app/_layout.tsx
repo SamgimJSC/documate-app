@@ -30,6 +30,7 @@ import {
 } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
 // 백그라운드/종료 상태 FCM 핸들러 — 컴포넌트 밖에서 앱 시작 시 등록
@@ -182,6 +183,7 @@ export default function RootLayout() {
   }, []);
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <AuthGuard />
       <Stack>
@@ -215,5 +217,6 @@ export default function RootLayout() {
       <Toast />
       <StatusBar style="auto" />
     </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

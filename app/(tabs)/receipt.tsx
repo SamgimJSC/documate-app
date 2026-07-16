@@ -15,12 +15,14 @@ import { useAuthStore } from "@/stores/auth-store";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -131,6 +133,31 @@ function getSavingRate(category: string): number {
   return 0.1;
 }
 
+function SkeletonReceiptItem() {
+  const shimmer = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(shimmer, { toValue: 0, duration: 750, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [shimmer]);
+  const opacity = shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0.9] });
+  return (
+    <Animated.View style={[styles.receiptItem, { opacity }]}>
+      <View style={[styles.receiptIconWrap, { backgroundColor: Colors.gray100 }]} />
+      <View style={styles.receiptInfo}>
+        <View style={[styles.skeletonLine, { width: "58%" }]} />
+        <View style={[styles.skeletonLine, { width: "34%", height: 10, marginTop: 4 }]} />
+      </View>
+      <View style={[styles.skeletonLine, { width: 52, height: 14 }]} />
+    </Animated.View>
+  );
+}
+
 export default function ReceiptScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
@@ -148,6 +175,13 @@ export default function ReceiptScreen() {
   const [annualReportLoading, setAnnualReportLoading] = useState(false);
   const [cardRecommendationRequesting, setCardRecommendationRequesting] = useState(false);
   const [subscriptionPlan, setSubscriptionPlan] = useState<"free" | "pro" | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchReceipts();
+    setRefreshing(false);
+  }, [fetchReceipts]);
 
   const handleOpenWebReport = async () => {
     if (!process.env.EXPO_PUBLIC_WEB_URL) {
@@ -497,6 +531,7 @@ export default function ReceiptScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.summaryGrid}>
           <View style={styles.summaryCard}>
@@ -897,8 +932,8 @@ export default function ReceiptScreen() {
           </View>
 
           {isLoading ? (
-            <View style={styles.empty}>
-              <ActivityIndicator size="large" color={Colors.primary} />
+            <View style={styles.receiptList}>
+              {[1, 2, 3].map((i) => <SkeletonReceiptItem key={i} />)}
             </View>
           ) : allReceipts.length === 0 ? (
             <View style={styles.empty}>
@@ -908,6 +943,13 @@ export default function ReceiptScreen() {
                 color={Colors.gray300}
               />
               <Text style={styles.emptyText}>등록된 영수증이 없습니다</Text>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => router.push('/camera' as any)}
+              >
+                <Ionicons name="add" size={18} color={Colors.white} />
+                <Text style={styles.emptyBtnText}>영수증 추가하기</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.receiptList}>
@@ -1508,6 +1550,18 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", padding: Spacing.xl, gap: Spacing.sm },
   emptyCompact: { paddingVertical: Spacing.md },
   emptyText: { fontSize: 14, color: Colors.gray400, textAlign: "center" },
+  emptyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radius.full,
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  emptyBtnText: { fontSize: 14, fontWeight: "600", color: Colors.white },
+  skeletonLine: { height: 14, backgroundColor: Colors.gray200, borderRadius: Radius.sm },
 
   // 카드 추천 배너
   cardRecommendBanner: {
