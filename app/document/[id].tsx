@@ -306,7 +306,10 @@ function formatFileSize(bytes: number) {
 }
 
 export default function DocumentDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, registering } = useLocalSearchParams<{
+    id: string;
+    registering?: string;
+  }>();
   const router = useRouter();
 
   const goBack = () => {
@@ -317,7 +320,7 @@ export default function DocumentDetailScreen() {
     }
   };
   const [downloading, setDownloading] = useState(false);
-  const [fetching, setFetching] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const { pin: storedPin, verifyPinWithServer } = useAuthStore();
   const hasFetchedRef = useRef(false);
   const { documents, toggleFavorite, removeDocument, fetchDocuments, toggleSecured, updateDocument } = useDocStore();
@@ -361,6 +364,11 @@ export default function DocumentDetailScreen() {
         <SafeAreaView style={styles.safe}>
           <View style={styles.center}>
             <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>
+              {registering === '1'
+                ? '문서를 등록하고 있어요...'
+                : '문서를 불러오고 있어요...'}
+            </Text>
           </View>
         </SafeAreaView>
       );
@@ -760,6 +768,7 @@ export default function DocumentDetailScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
+  loadingText: { fontSize: 15, color: Colors.gray500 },
   notFoundText: { fontSize: 16, color: Colors.gray500 },
   backLink: { fontSize: 14, color: Colors.primary, fontWeight: '600' },
   header: {

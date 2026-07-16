@@ -11,6 +11,10 @@ export type KakaoPaymentReadyResponse = {
   paymentId?: string;
   payment_id?: string;
   tid?: string;
+  redirectUrl?: string | null;
+  appRedirectUrl?: string | null;
+  mobileRedirectUrl?: string | null;
+  pcRedirectUrl?: string | null;
   nextRedirectPcUrl?: string;
   nextRedirectMobileUrl?: string;
   nextRedirectAppUrl?: string;
@@ -70,9 +74,18 @@ export function getKakaoRedirectUrl(
   platform: 'web' | 'native',
 ): string | undefined {
   if (platform === 'web') {
-    return ready.nextRedirectPcUrl ?? ready.next_redirect_pc_url;
+    return (
+      ready.pcRedirectUrl ??
+      ready.nextRedirectPcUrl ??
+      ready.next_redirect_pc_url ??
+      ready.redirectUrl ??
+      undefined
+    );
   }
   return (
+    ready.appRedirectUrl ??
+    ready.mobileRedirectUrl ??
+    ready.redirectUrl ??
     ready.nextRedirectAppUrl ??
     ready.next_redirect_app_url ??
     ready.nextRedirectMobileUrl ??

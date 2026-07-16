@@ -370,7 +370,11 @@ export default function DocumentEditScreen() {
       showToast(getErrorMessage(e), "error");
     }
 
-    router.replace(`/document/${serverId}`);
+    router.replace(
+      isLocalDraft
+        ? (`/document/${serverId}?registering=1` as any)
+        : (`/document/${serverId}` as any),
+    );
   };
 
   const handleSave = async () => {
