@@ -52,16 +52,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   "뷰티/건강": "의료",
   통신: "기타",
   구독: "기타",
-  "?앸퉬": "식비",
-  "留덊듃/?몄쓽??": "식비",
-  "移댄럹": "카페",
-  "?쇳븨": "쇼핑",
-  "援먰넻": "교통",
-  "?섎즺": "의료",
-  "酉고떚/嫄닿컯": "의료",
-  "?듭떊": "기타",
-  "援щ룆": "기타",
-  "湲고?": "기타",
 };
 
 function formatWon(value: number) {
@@ -179,8 +169,11 @@ export default function ReceiptScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchReceipts();
-    setRefreshing(false);
+    try {
+      await fetchReceipts();
+    } finally {
+      setRefreshing(false);
+    }
   }, [fetchReceipts]);
 
   const handleOpenWebReport = async () => {
@@ -202,7 +195,9 @@ export default function ReceiptScreen() {
   const [selectedMonth, setSelectedMonth] = useState(thisMonth);
   const currentMonth = selectedMonth;
   const selectedYear = Number(currentMonth.slice(0, 4));
-  const isPro = user?.plan === "pro" || subscriptionPlan === "pro";
+  const userId = user?.id;
+  const userPlan = user?.plan;
+  const isPro = userPlan === "pro" || subscriptionPlan === "pro";
   const daysInMonth = getDaysInMonth(currentMonth);
 
   const handlePrevMonth = () => setSelectedMonth((m) => offsetMonth(m, -1));
@@ -218,7 +213,7 @@ export default function ReceiptScreen() {
 
   useEffect(() => {
     let mounted = true;
-    if (!user) {
+    if (!userId) {
       setSubscriptionPlan(null);
       return;
     }
@@ -229,7 +224,7 @@ export default function ReceiptScreen() {
         if (!mounted) return;
         const nextPlan = subscription.status === "ACTIVE" ? "pro" : "free";
         setSubscriptionPlan(nextPlan);
-        if (nextPlan !== user.plan) {
+        if (nextPlan !== userPlan) {
           const refreshedUser = await getCurrentUser();
           if (!mounted) return;
           useAuthStore.setState({
@@ -248,7 +243,7 @@ export default function ReceiptScreen() {
     return () => {
       mounted = false;
     };
-  }, [user?.id, user?.plan]);
+  }, [userId, userPlan]);
 
   useEffect(() => {
     if (!isPro) return;

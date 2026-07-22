@@ -103,7 +103,9 @@ export default function CabinetScreen() {
   const [pendingDocId, setPendingDocId] = useState<string | null>(null);
   const [pinModalPurpose, setPinModalPurpose] = useState<'view' | 'disable'>('view');
   const [refreshing, setRefreshing] = useState(false);
-  const swipeableRefs = useRef<Record<string, SwipeableMethods | null>>({});
+  const swipeableRefs = useRef<
+    Record<string, React.RefObject<SwipeableMethods | null>>
+  >({});
 
   // 최초 마운트: 로딩 스켈레톤 표시하며 fetch
   useEffect(() => {
@@ -374,11 +376,15 @@ export default function CabinetScreen() {
         ) : (
           docs.map((doc) => {
             const days = getDaysUntil(doc.expiryDate);
+            const swipeableRef =
+              swipeableRefs.current[doc.id] ??
+              (swipeableRefs.current[doc.id] =
+                React.createRef<SwipeableMethods>());
 
             return (
               <ReanimatedSwipeable
                 key={doc.id}
-                ref={(ref) => { swipeableRefs.current[doc.id] = ref; }}
+                ref={swipeableRef}
                 renderLeftActions={() => (
                   <View style={[styles.swipeAction, styles.swipeActionFavorite]}>
                     <Ionicons
@@ -400,7 +406,7 @@ export default function CabinetScreen() {
                 onSwipeableOpen={(direction) => {
                   if (direction === 'right') {
                     toggleFavorite(doc.id);
-                    setTimeout(() => swipeableRefs.current[doc.id]?.close(), 300);
+                    setTimeout(() => swipeableRef.current?.close(), 300);
                   } else {
                     removeDocument(doc.id);
                   }

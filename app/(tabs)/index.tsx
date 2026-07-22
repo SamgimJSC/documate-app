@@ -9,7 +9,7 @@ import { showToast } from '@/stores/toast-store';
 import { formatStorageUsed } from '@/utils/storage-usage';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Platform,
