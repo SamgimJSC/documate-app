@@ -133,8 +133,9 @@ export default function HomeScreen() {
     try {
       const list = await getTempDocumentList();
       const active = list.filter((d) => d.aiStatus === 'PENDING' || d.aiStatus === 'PROCESSING');
+      const actionable = list.filter((d) => d.aiStatus === 'PENDING' || d.aiStatus === 'PROCESSING' || d.aiStatus === 'FAILED');
       setProcessingCount(active.length);
-      if (active.length > 0) {
+      if (actionable.length > 0) {
         router.push('/processing-center' as any);
       } else {
         showToast('처리 중인 문서가 없습니다.', 'info');
